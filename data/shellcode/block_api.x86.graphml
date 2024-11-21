@@ -47,8 +47,8 @@
           <data key="instruction.hex">8b5214</data>
           <data key="instruction.source">mov edx, dword ptr [edx + 0x14]</data>
         </node>
-        <edge source="block.0x1000:instruction.0x1000" target="block.0x1000:instruction.0x1001"/>
         <edge source="block.0x1000:instruction.0x1000" target="block.0x1000:instruction.0x1003"/>
+        <edge source="block.0x1000:instruction.0x1000" target="block.0x1000:instruction.0x1001"/>
         <edge source="block.0x1000:instruction.0x1003" target="block.0x1000:instruction.0x1005"/>
         <edge source="block.0x1000:instruction.0x1005" target="block.0x1000:instruction.0x1009"/>
         <edge source="block.0x1000:instruction.0x1009" target="block.0x1000:instruction.0x100c"/>
@@ -69,8 +69,8 @@
         <node id="block.0x100f:instruction.0x1012">
           <data key="address">0x1012</data>
           <data key="type">instruction</data>
-          <data key="instruction.hex">0fb74a26</data>
-          <data key="instruction.source">movzx ecx, word ptr [edx + 0x26]</data>
+          <data key="instruction.hex">0fb74a24</data>
+          <data key="instruction.source">movzx ecx, word ptr [edx + 0x24]</data>
         </node>
         <node id="block.0x100f:instruction.0x1016">
           <data key="address">0x1016</data>
