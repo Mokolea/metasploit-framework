@@ -224,9 +224,9 @@ class MetasploitModule < Msf::Auxiliary
     version = get_version
 
     if version.nil?
-      vprint_warning('Failed to get build version')
+      return Exploit::CheckCode::Unknown('Failed to get build version')
     elsif vuln_version?(version) != true
-      Exploit::CheckCode::Detected
+      return Exploit::CheckCode::Safe
     end
 
     res = get_file(datastore['FILEPATH'])

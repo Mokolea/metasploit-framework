@@ -12,11 +12,11 @@ CVE-2024-46987 mistakenly indicates that versions 2.8.1 and 2.8.2 are also vulne
 
 ## Options
 
-### filepath
+### FILEPATH
 
 The filepath of the file to read.
 
-### depth
+### DEPTH
 
 The number of "../" appended to the filename. Default is 13
 
