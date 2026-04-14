@@ -86,7 +86,7 @@ In your Gemfile do the following:
 Replace `gem 'spring'` with `gem 'spring', '4.2.1'`
 
 
-Delete this line to prevent [conflict](https://github.com/owen2345/camaleon-cms/issues/1111): `gem 'sass-rails', '>= 6'
+Delete this line to prevent [conflict](https://github.com/owen2345/camaleon-cms/issues/1111): `gem 'sass-rails', '>= 6'`
 
 Put these lines at the bottom of your Gemfile:
 
@@ -119,7 +119,7 @@ rake db:migrate
 bundle exec rails server -b 0.0.0.0
 ~~~
 
-Navigate to http://{ip address}:3000 and enter test under the Name field.
+Navigate to `http://{ip address}:3000` and enter test under the Name field.
 
 ### Setup Server
 
@@ -127,7 +127,7 @@ When prompted with the new installation page just enter "test" into the Name fie
 
 #### Create Unprivileged User (Optional)
 
-Navigate to http://{ip address}:3000/admin, login with the default admin credentials "admin:admin123"
+Navigate to `http://{ip address}:3000/admin` - login with the default admin credentials "admin:admin123"
 
 Then navigate to "Users -> + Add User" and fill out the form.
 
