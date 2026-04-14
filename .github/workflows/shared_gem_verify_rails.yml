@@ -55,7 +55,7 @@ jobs:
           - '3.4'
         rails: ${{ fromJSON(needs.prepare_matrix.outputs.rails_versions) }}
         postgres:
-          - '9.6'
+          - '14.19'
           - '16.8'
         os:
           - ubuntu-latest
