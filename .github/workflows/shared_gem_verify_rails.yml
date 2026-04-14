@@ -62,6 +62,7 @@ jobs:
 
     env:
       RAILS_ENV: test
+      RAILS_VERSION: ${{ matrix.rails }}
 
     name: ${{ matrix.os }} - Ruby ${{ matrix.ruby }} - Rails ${{ matrix.rails }} - PostgreSQL ${{ matrix.postgres }}
     steps:
