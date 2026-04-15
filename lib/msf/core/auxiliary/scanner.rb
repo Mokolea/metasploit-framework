@@ -15,6 +15,19 @@ include Msf::Auxiliary::MultipleTargetHosts
 class AttemptFailed < Msf::Auxiliary::Failed
 end
 
+# Scanner modules handle per-host failure reporting through replicants
+# inside their run_host/run_batch threads.  Override the default
+# report_failure so that the parent-level call from job_run_proc's
+# ensure block does not create a duplicate or misattributed attempt
+# after a scan.  The check path (check_simple) still needs the
+# default report_failure behaviour, so we only skip when the scanner's
+# run method has executed.
+def report_failure
+  return if @scanner_run_completed
+
+  super
+end
+
 #
 # Initializes an instance of a recon auxiliary module
 #
@@ -42,6 +55,7 @@ end
 # The command handler when launched from the console
 #
 def run
+  @scanner_run_completed = true
   @show_progress = datastore['ShowProgress']
   @show_percent  = datastore['ShowProgressPercent'].to_i
 
@@ -127,6 +141,7 @@ def run
             print_status("Error: #{targ}: #{e.class} #{e.message}")
             elog("Error running against host #{targ}", error: e)
           ensure
+            nmod.report_failure
             nmod.cleanup
           end
         end
@@ -215,6 +230,7 @@ def run
             rescue ::Exception => e
               print_status("Error: #{mybatch[0]}-#{mybatch[-1]}: #{e}")
             ensure
+              nmod.report_failure
               nmod.cleanup
             end
           end

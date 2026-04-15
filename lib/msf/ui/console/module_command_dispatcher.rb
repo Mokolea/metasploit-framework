@@ -184,6 +184,13 @@ module ModuleCommandDispatcher
       refs: instance.references
     }
 
+    # Include port so that checks against different ports on the same host
+    # create distinct vuln records instead of collapsing into one.
+    if instance.datastore['RPORT']
+      rport = instance.respond_to?(:rport) ? instance.rport : instance.datastore['RPORT']
+      opts[:port] = rport.to_i if rport.to_i > 0
+    end
+
     if checkcode&.kind_of?(Msf::Exploit::CheckCode) && checkcode.vuln.present?
       if checkcode.vuln.kind_of?(Array)
         checkcode.vuln.each { |vuln| framework.db.report_vuln(opts.merge(vuln)) }
@@ -221,7 +228,7 @@ module ModuleCommandDispatcher
       end
 
       if (code && code.kind_of?(Msf::Exploit::CheckCode))
-        if (code == Msf::Exploit::CheckCode::Vulnerable)
+        if code == Msf::Exploit::CheckCode::Vulnerable || code == Msf::Exploit::CheckCode::Appears
           print_good("#{peer_msg}#{code[1]}")
           # Restore RHOST for report_vuln
           instance.datastore['RHOST'] ||= rhost
