@@ -491,7 +491,7 @@ GEM
       netrc (~> 0.8)
     rex-arch (0.1.19)
       rex-text
-    rex-bin_tools (0.1.15)
+    rex-bin_tools (0.1.16)
       metasm
       rex-arch
       rex-core
