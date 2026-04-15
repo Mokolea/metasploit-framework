@@ -22,14 +22,32 @@ module Msf::Payload::Windows
   #
   # ROR hash associations for some of the exit technique routines.
 
+  def exitfunc_helper(type)
+    iv = 0 if block_api_iv.nil?
+    case type
+    when 'seh'
+      return Rex::Text.block_api_hash("kernel32.dll", "SetUnhandledExceptionFilter", iv: iv).to_i(16)
+    when 'thread'
+      return Rex::Text.block_api_hash("kernel32.dll", "ExitThread", iv: iv).to_i(16)
+    when 'process'
+      return Rex::Text.block_api_hash("kernel32.dll", "ExitProcess", iv: iv).to_i(16)
+    when 'none'
+      return Rex::Text.block_api_hash("kernel32.dll", "GetLastError", iv: iv).to_i(16)
+    else
+      return 0
+    end
+
+
+
+  end
   @@exit_types =
     {
-      nil       => 0,          # Default to nothing
-      ''        => 0,          # Default to nothing
-      'seh'     => Rex::Text.block_api_hash("kernel32.dll", "SetUnhandledExceptionFilter").to_i(16), # SetUnhandledExceptionFilter
-      'thread'  => Rex::Text.block_api_hash("kernel32.dll", "ExitThread").to_i(16), # ExitThread
-      'process' => Rex::Text.block_api_hash("kernel32.dll", "ExitProcess").to_i(16), # ExitProcess
-      'none'    => Rex::Text.block_api_hash("kernel32.dll", "GetLastError").to_i(16)  # GetLastError
+      nil       => exitfunc_helper(nil),          # Default to nothing
+      ''        => exitfunc_helper(''),           # Default to nothing
+      'seh'     => exitfunc_helper('seh'),        # SetUnhandledExceptionFilter
+      'thread'  => exitfunc_helper('thread'),     # ExitThread
+      'process' => exitfunc_helper('process'),    # ExitProcess
+      'none'    => exitfunc_helper('none')        # GetLastError
     }
 
   #
@@ -112,6 +130,7 @@ module Msf::Payload::Windows
     # data into a buffer which is allocated with VirtualAlloc to avoid running
     # out of stack space or NX problems.
     # See the source file: /external/source/shellcode/windows/midstager.asm
+    # TODO: We should update the midstager to use block-api randomization (passing it to metasm, and block api...)
     midstager =
       "\xfc\x31\xdb\x64\x8b\x43\x30\x8b\x40\x0c\x8b\x50\x1c\x8b\x12\x8b" +
       "\x72\x20\xad\xad\x4e\x03\x06\x3d\x32\x33\x5f\x32\x0f\x85\xeb\xff" +
