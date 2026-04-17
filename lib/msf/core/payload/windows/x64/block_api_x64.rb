@@ -15,6 +15,7 @@ module Payload::Windows::BlockApi_x64
   def block_api_iv
     @block_api_iv ||= rand(0x100000000)
   end
+
   def asm_block_api(opts={})
     @block_api_iv ||= rand(0x100000000)
     asm = Rex::Payloads::Shuffle.from_graphml_file(
