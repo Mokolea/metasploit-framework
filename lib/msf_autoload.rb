@@ -65,7 +65,9 @@ class MsfAutoload
       "#{__dir__}/rex/post.rb",
       "#{__dir__}/rex/proto/ssh/hrr_rb_ssh.rb",
       "#{__dir__}/rex/proto/ssh/connection.rb",
-      "#{__dir__}/rex/proto/kerberos/pac/krb5_pac.rb"
+      "#{__dir__}/rex/proto/kerberos/pac/krb5_pac.rb",
+      "#{__dir__}/msf/core/mcp.rb",
+      "#{__dir__}/msf/core/mcp/"
     ]
   end
 

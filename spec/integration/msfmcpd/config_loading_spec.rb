@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'msfmcp'
+require 'msf/core/mcp'
 require 'webmock/rspec'
 require 'tempfile'
 
@@ -22,7 +22,7 @@ RSpec.describe 'Configuration Loading and Validation Integration' do
     let(:argv) { ['--config', valid_messagepack_path] }
 
     it 'successfully initializes all components with valid MessagePack config' do
-      app = MsfMcp::Application.new(argv, output: output)
+      app = Msf::MCP::Application.new(argv, output: output)
 
       # Stub Metasploit authentication
       stub_request(:post, 'https://localhost:55553/api/')
@@ -47,17 +47,17 @@ RSpec.describe 'Configuration Loading and Validation Integration' do
       expect(app.config[:msf_api][:port]).to eq(55553)
 
       # Verify rate limiter is configured from config
-      expect(app.rate_limiter).to be_a(MsfMcp::Security::RateLimiter)
+      expect(app.rate_limiter).to be_a(Msf::MCP::Security::RateLimiter)
       expect(app.rate_limiter.instance_variable_get(:@requests_per_minute)).to eq(60)
       expect(app.rate_limiter.instance_variable_get(:@burst_size)).to eq(10)
 
       # Verify Metasploit client is created with config values
-      expect(app.msf_client).to be_a(MsfMcp::Metasploit::Client)
+      expect(app.msf_client).to be_a(Msf::MCP::Metasploit::Client)
     end
 
     it 'successfully initializes all components with valid JSON-RPC config' do
       argv = ['--config', valid_jsonrpc_path]
-      app = MsfMcp::Application.new(argv, output: output)
+      app = Msf::MCP::Application.new(argv, output: output)
 
       # Execute initialization steps
       app.send(:parse_arguments)
@@ -72,8 +72,8 @@ RSpec.describe 'Configuration Loading and Validation Integration' do
       expect(app.config[:msf_api][:token]).to eq('test_bearer_token_12345')
 
       # Verify components are initialized
-      expect(app.rate_limiter).to be_a(MsfMcp::Security::RateLimiter)
-      expect(app.msf_client).to be_a(MsfMcp::Metasploit::Client)
+      expect(app.rate_limiter).to be_a(Msf::MCP::Security::RateLimiter)
+      expect(app.msf_client).to be_a(Msf::MCP::Metasploit::Client)
     end
 
     it 'applies defaults and starts successfully with minimal config' do
@@ -90,7 +90,7 @@ RSpec.describe 'Configuration Loading and Validation Integration' do
       config_file.write(YAML.dump(JSON.parse(minimal_config.to_json)))
       config_file.flush
 
-      app = MsfMcp::Application.new(['--config', config_file.path], output: output)
+      app = Msf::MCP::Application.new(['--config', config_file.path], output: output)
 
       # Stub authentication
       stub_request(:post, 'https://localhost:55553/api/')
@@ -130,7 +130,7 @@ RSpec.describe 'Configuration Loading and Validation Integration' do
       config_file.write(YAML.dump(invalid_config))
       config_file.flush
 
-      app = MsfMcp::Application.new(['--config', config_file.path], output: output)
+      app = Msf::MCP::Application.new(['--config', config_file.path], output: output)
 
       expect {
         app.run
@@ -143,12 +143,13 @@ RSpec.describe 'Configuration Loading and Validation Integration' do
       config_file.unlink
     end
 
-    it 'fails gracefully when config is missing required authentication' do
+    it 'fails gracefully when config is missing required authentication on remote host' do
       invalid_config = {
         msf_api: {
           type: 'messagepack',
-          host: 'localhost',
-          port: 55553
+          host: '192.168.1.100',
+          port: 55553,
+          auto_start_rpc: false
         }
       }
 
@@ -157,7 +158,7 @@ RSpec.describe 'Configuration Loading and Validation Integration' do
       config_file.write(YAML.dump(JSON.parse(invalid_config.to_json)))
       config_file.flush
 
-      app = MsfMcp::Application.new(['--config', config_file.path], output: output)
+      app = Msf::MCP::Application.new(['--config', config_file.path], output: output)
 
       expect {
         app.run
@@ -178,7 +179,7 @@ RSpec.describe 'Configuration Loading and Validation Integration' do
       config_file.write(YAML.dump(invalid_config))
       config_file.flush
 
-      app = MsfMcp::Application.new(['--config', config_file.path], output: output)
+      app = Msf::MCP::Application.new(['--config', config_file.path], output: output)
 
       expect {
         app.run
@@ -203,7 +204,7 @@ RSpec.describe 'Configuration Loading and Validation Integration' do
     it 'ENV override changes which Metasploit host client connects to' do
       ENV['MSF_API_HOST'] = '192.168.1.100'
 
-      app = MsfMcp::Application.new(['--config', valid_messagepack_path], output: output)
+      app = Msf::MCP::Application.new(['--config', valid_messagepack_path], output: output)
 
       app.send(:parse_arguments)
       app.send(:load_configuration)
@@ -235,7 +236,7 @@ RSpec.describe 'Configuration Loading and Validation Integration' do
       ENV['MSF_API_USER'] = 'env_override_user'
       ENV['MSF_API_PASSWORD'] = 'env_override_pass'
 
-      app = MsfMcp::Application.new(['--config', valid_messagepack_path], output: output)
+      app = Msf::MCP::Application.new(['--config', valid_messagepack_path], output: output)
 
       # Stub authentication - accept any body since MessagePack matching is problematic
       stub_request(:post, 'https://localhost:55553/api/')
@@ -267,7 +268,7 @@ RSpec.describe 'Configuration Loading and Validation Integration' do
       ENV['MSF_API_PORT'] = '8081'
       ENV['MSF_API_TOKEN'] = 'env_token_123' # JSON-RPC requires token
 
-      app = MsfMcp::Application.new(['--config', valid_messagepack_path], output: output)
+      app = Msf::MCP::Application.new(['--config', valid_messagepack_path], output: output)
 
       app.send(:parse_arguments)
       app.send(:load_configuration)
@@ -281,7 +282,7 @@ RSpec.describe 'Configuration Loading and Validation Integration' do
 
       # Verify client is JSON-RPC client (not MessagePack)
       underlying_client = app.msf_client.instance_variable_get(:@client)
-      expect(underlying_client).to be_a(MsfMcp::Metasploit::JsonRpcClient)
+      expect(underlying_client).to be_a(Msf::MCP::Metasploit::JsonRpcClient)
     end
   end
 
@@ -289,7 +290,7 @@ RSpec.describe 'Configuration Loading and Validation Integration' do
     let(:output) { StringIO.new }
 
     it 'CLI --user and --password flags override config file authentication' do
-      app = MsfMcp::Application.new(
+      app = Msf::MCP::Application.new(
         ['--config', valid_messagepack_path, '--user', 'cli_user', '--password', 'cli_pass'],
         output: output
       )

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'msfmcp'
+require 'msf/core/mcp'
 require 'webmock/rspec'
 
 RSpec.describe 'Error Handling Integration' do
@@ -20,7 +20,7 @@ RSpec.describe 'Error Handling Integration' do
     let(:endpoint) { '/api/' }
     let(:api_url) { "https://#{host}:#{port}#{endpoint}" }
     let(:client) do
-      MsfMcp::Metasploit::Client.new(
+      Msf::MCP::Metasploit::Client.new(
         api_type: 'messagepack',
         host: host,
         port: port,
@@ -49,14 +49,14 @@ RSpec.describe 'Error Handling Integration' do
           .with(body: ['module.search', 'test_token', 'smb'].to_msgpack)
           .to_raise(Errno::ECONNREFUSED)
 
-        expect { client.search_modules('smb') }.to raise_error(MsfMcp::Metasploit::ConnectionError, /Cannot connect to Metasploit RPC/)
+        expect { client.search_modules('smb') }.to raise_error(Msf::MCP::Metasploit::ConnectionError, /Cannot connect to Metasploit RPC/)
       end
 
       it 'converts SocketError to ConnectionError' do
         stub_request(:post, api_url)
           .to_raise(SocketError.new('getaddrinfo: Name or service not known'))
 
-        expect { client.search_modules('smb') }.to raise_error(MsfMcp::Metasploit::ConnectionError, /Network error/)
+        expect { client.search_modules('smb') }.to raise_error(Msf::MCP::Metasploit::ConnectionError, /Network error/)
       end
 
       it 'converts Timeout::Error to ConnectionError' do
@@ -65,14 +65,14 @@ RSpec.describe 'Error Handling Integration' do
           .with(body: ['module.search', 'test_token', 'smb'].to_msgpack)
           .to_raise(Timeout::Error.new('execution expired'))
 
-        expect { client.search_modules('smb') }.to raise_error(MsfMcp::Metasploit::ConnectionError, /Request timeout/)
+        expect { client.search_modules('smb') }.to raise_error(Msf::MCP::Metasploit::ConnectionError, /Request timeout/)
       end
 
       it 'converts EOFError to ConnectionError' do
         stub_request(:post, api_url)
           .to_raise(EOFError.new('end of file reached'))
 
-        expect { client.search_modules('smb') }.to raise_error(MsfMcp::Metasploit::ConnectionError, /Empty response/)
+        expect { client.search_modules('smb') }.to raise_error(Msf::MCP::Metasploit::ConnectionError, /Empty response/)
       end
     end
 
@@ -86,7 +86,7 @@ RSpec.describe 'Error Handling Integration' do
             headers: { 'Content-Type' => 'binary/message-pack' }
           )
 
-        expect { client.authenticate('invalid', 'invalid') }.to raise_error(MsfMcp::Metasploit::AuthenticationError, /Invalid credentials/)
+        expect { client.authenticate('invalid', 'invalid') }.to raise_error(Msf::MCP::Metasploit::AuthenticationError, /Invalid credentials/)
       end
 
       it 'converts HTTP 500 to APIError' do
@@ -98,19 +98,19 @@ RSpec.describe 'Error Handling Integration' do
             body: { 'error_message' => 'Internal server error' }.to_msgpack
           )
 
-        expect { client.search_modules('smb') }.to raise_error(MsfMcp::Metasploit::APIError, /Internal server error/)
+        expect { client.search_modules('smb') }.to raise_error(Msf::MCP::Metasploit::APIError, /Internal server error/)
       end
 
       it 'converts unexpected HTTP status to ConnectionError' do
         stub_request(:post, api_url)
           .to_return(status: 503, body: 'Service Unavailable')
 
-        expect { client.search_modules('smb') }.to raise_error(MsfMcp::Metasploit::ConnectionError, /HTTP 503/)
+        expect { client.search_modules('smb') }.to raise_error(Msf::MCP::Metasploit::ConnectionError, /HTTP 503/)
       end
     end
 
     describe 'Tool Error Handling Integration' do
-      let(:rate_limiter) { MsfMcp::Security::RateLimiter.new(requests_per_minute: 60) }
+      let(:rate_limiter) { Msf::MCP::Security::RateLimiter.new(requests_per_minute: 60) }
       let(:server_context) do
         {
           msf_client: client,
@@ -119,9 +119,9 @@ RSpec.describe 'Error Handling Integration' do
         }
       end
 
-      it 'converts Metasploit errors to MCP errors end-to-end' do
+      it 'converts Metasploit errors to MCP error responses end-to-end' do
         # Test that errors propagate correctly through the entire stack:
-        # HTTP error → Metasploit exception → MCP exception
+        # HTTP error → Metasploit exception → MCP error response (isError: true)
         stub_request(:post, api_url)
           .with(body: ['module.search', 'test_token', 'smb'].to_msgpack)
           .to_return(
@@ -129,9 +129,9 @@ RSpec.describe 'Error Handling Integration' do
             body: { 'error_message' => 'Token invalid' }.to_msgpack
           )
 
-        expect {
-          MsfMcp::MCPTools::SearchModules.call(query: 'smb', server_context: server_context)
-        }.to raise_error(MsfMcp::MCP::ToolExecutionError, /Authentication failed/)
+        result = Msf::MCP::Tools::SearchModules.call(query: 'smb', server_context: server_context)
+        expect(result.error?).to be true
+        expect(result.content.first[:text]).to match(/Authentication failed/)
       end
     end
   end
@@ -139,7 +139,7 @@ RSpec.describe 'Error Handling Integration' do
   describe 'JSON-RPC Error Handling' do
     let(:jsonrpc_url) { "https://#{host}:#{port}/api/v1/json-rpc" }
     let(:client) do
-      MsfMcp::Metasploit::Client.new(
+      Msf::MCP::Metasploit::Client.new(
         api_type: 'json-rpc',
         host: host,
         port: port,
@@ -161,14 +161,14 @@ RSpec.describe 'Error Handling Integration' do
           headers: { 'Content-Type' => 'application/json' }
         )
 
-      expect { client.search_modules('smb') }.to raise_error(MsfMcp::Metasploit::APIError, /Method not found/)
+      expect { client.search_modules('smb') }.to raise_error(Msf::MCP::Metasploit::APIError, /Method not found/)
     end
 
     it 'handles network errors with JSON-RPC client' do
       stub_request(:post, jsonrpc_url)
         .to_raise(Errno::ECONNREFUSED)
 
-      expect { client.search_modules('smb') }.to raise_error(MsfMcp::Metasploit::ConnectionError)
+      expect { client.search_modules('smb') }.to raise_error(Msf::MCP::Metasploit::ConnectionError)
     end
 
     it 'raises error with invalid bearer token' do
@@ -179,7 +179,7 @@ RSpec.describe 'Error Handling Integration' do
           headers: { 'Content-Type' => 'application/json' }
         )
 
-      expect { client.search_modules('smb') }.to raise_error(MsfMcp::Metasploit::AuthenticationError, /Invalid authentication token/)
+      expect { client.search_modules('smb') }.to raise_error(Msf::MCP::Metasploit::AuthenticationError, /Invalid authentication token/)
     end
   end
 end

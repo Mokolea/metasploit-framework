@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'msfmcp'
+require 'msf/core/mcp'
 require 'webmock/rspec'
 
 RSpec.describe 'Rate Limiting Integration' do
@@ -41,10 +41,10 @@ RSpec.describe 'Rate Limiting Integration' do
         )
 
       # Create rate limiter with low limit
-      limiter = MsfMcp::Security::RateLimiter.new(requests_per_minute: 3, burst_size: 3)
+      limiter = Msf::MCP::Security::RateLimiter.new(requests_per_minute: 3, burst_size: 3)
 
       # Create authenticated client
-      client = MsfMcp::Metasploit::MessagePackClient.new(
+      client = Msf::MCP::Metasploit::MessagePackClient.new(
         host: host,
         port: port,
         endpoint: endpoint
@@ -60,7 +60,7 @@ RSpec.describe 'Rate Limiting Integration' do
       # First 3 tool calls should succeed (within rate limit)
       3.times do
         expect {
-          MsfMcp::MCPTools::SearchModules.call(
+          Msf::MCP::Tools::SearchModules.call(
             query: 'smb',
             limit: 10,
             server_context: server_context
@@ -72,16 +72,9 @@ RSpec.describe 'Rate Limiting Integration' do
       expect(search_stub).to have_been_requested.times(3)
 
       # 4th call should be rate limited before making HTTP request
-      expect {
-        MsfMcp::MCPTools::SearchModules.call(
-          query: 'smb',
-          limit: 10,
-          server_context: server_context
-        )
-      }.to raise_error(MsfMcp::Security::RateLimitExceededError) do |error|
-        expect(error.message).to include('Rate limit exceeded')
-        expect(error.retry_after).to be_a(Integer)
-      end
+      result = Msf::MCP::Tools::SearchModules.call(query: 'smb', limit: 10, server_context: server_context)
+      expect(result.error?).to be true
+      expect(result.content.first[:text]).to match(/Rate limit exceeded/)
 
       # Verify still only 3 search requests (4th was blocked by rate limiter)
       expect(search_stub).to have_been_requested.times(3)
@@ -102,7 +95,7 @@ RSpec.describe 'Rate Limiting Integration' do
         .with(body: ['module.search', 'test_token', 'smb'].to_msgpack)
         .to_return(
           status: 200,
-          body: { 'modules' => [] }.to_msgpack,
+          body: [].to_msgpack,
           headers: { 'Content-Type' => 'binary/message-pack' }
         )
 
@@ -115,8 +108,8 @@ RSpec.describe 'Rate Limiting Integration' do
           headers: { 'Content-Type' => 'binary/message-pack' }
         )
 
-      limiter = MsfMcp::Security::RateLimiter.new(requests_per_minute: 5, burst_size: 5)
-      client = MsfMcp::Metasploit::MessagePackClient.new(
+      limiter = Msf::MCP::Security::RateLimiter.new(requests_per_minute: 5, burst_size: 5)
+      client = Msf::MCP::Metasploit::MessagePackClient.new(
         host: host,
         port: port,
         endpoint: endpoint
@@ -130,7 +123,7 @@ RSpec.describe 'Rate Limiting Integration' do
 
       # Make 3 search_modules calls
       3.times do
-        MsfMcp::MCPTools::SearchModules.call(
+        Msf::MCP::Tools::SearchModules.call(
           query: 'smb',
           limit: 10,
           server_context: server_context
@@ -139,20 +132,16 @@ RSpec.describe 'Rate Limiting Integration' do
 
       # Make 2 host_info calls
       2.times do
-        MsfMcp::MCPTools::HostInfo.call(
+        Msf::MCP::Tools::HostInfo.call(
           workspace: 'default',
           server_context: server_context
         )
       end
 
       # 6th call (different tool) should be rate limited
-      expect {
-        MsfMcp::MCPTools::SearchModules.call(
-          query: 'http',
-          limit: 10,
-          server_context: server_context
-        )
-      }.to raise_error(MsfMcp::Security::RateLimitExceededError)
+      result = Msf::MCP::Tools::SearchModules.call(query: 'http', limit: 10, server_context: server_context)
+      expect(result.error?).to be true
+      expect(result.content.first[:text]).to match(/Rate limit exceeded/)
 
       # Verify HTTP request counts
       expect(search_stub).to have_been_requested.times(3)

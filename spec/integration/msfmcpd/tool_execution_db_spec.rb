@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'msfmcp'
+require 'msf/core/mcp'
 require 'webmock/rspec'
 
 RSpec.describe 'Tool Execution End-to-End - Database Queries' do
@@ -64,10 +64,10 @@ RSpec.describe 'Tool Execution End-to-End - Database Queries' do
         )
 
       # Create rate limiter
-      limiter = MsfMcp::Security::RateLimiter.new(requests_per_minute: 60, burst_size: 10)
+      limiter = Msf::MCP::Security::RateLimiter.new(requests_per_minute: 60, burst_size: 10)
 
       # Create authenticated client
-      client = MsfMcp::Metasploit::MessagePackClient.new(
+      client = Msf::MCP::Metasploit::MessagePackClient.new(
         host: host,
         port: port,
         endpoint: endpoint
@@ -81,7 +81,7 @@ RSpec.describe 'Tool Execution End-to-End - Database Queries' do
       }
 
       # Execute host query through complete stack
-      result = MsfMcp::MCPTools::HostInfo.call(
+      result = Msf::MCP::Tools::HostInfo.call(
         workspace: 'default',
         server_context: server_context
       )
@@ -142,8 +142,8 @@ RSpec.describe 'Tool Execution End-to-End - Database Queries' do
           headers: { 'Content-Type' => 'binary/message-pack' }
         )
 
-      limiter = MsfMcp::Security::RateLimiter.new(requests_per_minute: 60, burst_size: 10)
-      client = MsfMcp::Metasploit::MessagePackClient.new(
+      limiter = Msf::MCP::Security::RateLimiter.new(requests_per_minute: 60, burst_size: 10)
+      client = Msf::MCP::Metasploit::MessagePackClient.new(
         host: host,
         port: port,
         endpoint: endpoint
@@ -156,7 +156,7 @@ RSpec.describe 'Tool Execution End-to-End - Database Queries' do
       }
 
       # Execute query with filters
-      result = MsfMcp::MCPTools::HostInfo.call(
+      result = Msf::MCP::Tools::HostInfo.call(
         workspace: 'default',
         addresses: '192.168.1.0/24',
         only_up: true,
@@ -209,8 +209,8 @@ RSpec.describe 'Tool Execution End-to-End - Database Queries' do
           headers: { 'Content-Type' => 'binary/message-pack' }
         )
 
-      limiter = MsfMcp::Security::RateLimiter.new(requests_per_minute: 60, burst_size: 10)
-      client = MsfMcp::Metasploit::MessagePackClient.new(
+      limiter = Msf::MCP::Security::RateLimiter.new(requests_per_minute: 60, burst_size: 10)
+      client = Msf::MCP::Metasploit::MessagePackClient.new(
         host: host,
         port: port,
         endpoint: endpoint
@@ -223,7 +223,7 @@ RSpec.describe 'Tool Execution End-to-End - Database Queries' do
       }
 
       # Execute service query with multiple filters
-      result = MsfMcp::MCPTools::ServiceInfo.call(
+      result = Msf::MCP::Tools::ServiceInfo.call(
         workspace: 'default',
         host: '192.168.1.100',
         ports: '445',
@@ -271,8 +271,8 @@ RSpec.describe 'Tool Execution End-to-End - Database Queries' do
           headers: { 'Content-Type' => 'binary/message-pack' }
         )
 
-      limiter = MsfMcp::Security::RateLimiter.new(requests_per_minute: 60, burst_size: 10)
-      client = MsfMcp::Metasploit::MessagePackClient.new(
+      limiter = Msf::MCP::Security::RateLimiter.new(requests_per_minute: 60, burst_size: 10)
+      client = Msf::MCP::Metasploit::MessagePackClient.new(
         host: host,
         port: port,
         endpoint: endpoint
@@ -285,7 +285,7 @@ RSpec.describe 'Tool Execution End-to-End - Database Queries' do
       }
 
       # Execute query with pagination (offset=1, limit=2 means items 2 and 3)
-      result = MsfMcp::MCPTools::HostInfo.call(
+      result = Msf::MCP::Tools::HostInfo.call(
         workspace: 'default',
         limit: 2,
         offset: 1,

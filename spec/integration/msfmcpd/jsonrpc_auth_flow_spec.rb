@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'msfmcp'
+require 'msf/core/mcp'
 require 'webmock/rspec'
 
 RSpec.describe 'JSON-RPC Authentication Flow Integration' do
@@ -35,7 +35,7 @@ RSpec.describe 'JSON-RPC Authentication Flow Integration' do
           headers: { 'Content-Type' => 'application/json' }
         )
 
-      client = MsfMcp::Metasploit::JsonRpcClient.new(
+      client = Msf::MCP::Metasploit::JsonRpcClient.new(
         host: host,
         port: port,
         endpoint: endpoint,
@@ -49,7 +49,7 @@ RSpec.describe 'JSON-RPC Authentication Flow Integration' do
     end
 
     it 'follows stateless request pattern (no session management)' do
-      client = MsfMcp::Metasploit::JsonRpcClient.new(
+      client = Msf::MCP::Metasploit::JsonRpcClient.new(
         host: host,
         port: port,
         endpoint: endpoint,

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'msfmcp'
+require 'msf/core/mcp'
 require 'webmock/rspec'
 
 RSpec.describe 'MessagePack Authentication Flow Integration' do
@@ -31,7 +31,7 @@ RSpec.describe 'MessagePack Authentication Flow Integration' do
           headers: { 'Content-Type' => 'binary/message-pack' }
         )
 
-      client = MsfMcp::Metasploit::MessagePackClient.new(
+      client = Msf::MCP::Metasploit::MessagePackClient.new(
         host: host,
         port: port,
         endpoint: endpoint
@@ -58,11 +58,11 @@ RSpec.describe 'MessagePack Authentication Flow Integration' do
         .with(body: ['module.search', 'test_token_12345', 'smb'].to_msgpack)
         .to_return(
           status: 200,
-          body: { 'modules' => [] }.to_msgpack,
+          body: [].to_msgpack,
           headers: { 'Content-Type' => 'binary/message-pack' }
         )
 
-      client = MsfMcp::Metasploit::MessagePackClient.new(
+      client = Msf::MCP::Metasploit::MessagePackClient.new(
         host: host,
         port: port,
         endpoint: endpoint

@@ -7,7 +7,7 @@
 # functionality to AI agents and LLM applications.
 #
 # Usage:
-#   msfmcp [options]
+#   msfmcpd [options]
 #
 # Options:
 #   --config PATH                Path to configuration file
@@ -29,25 +29,25 @@
 #   MSF_API_PASSWORD            Metaspoit RPC API password (for MessagePack auth)
 #   MSF_API_TOKEN               Metaspoit RPC API token (for JSON-RPC auth)
 #   MSF_AUTO_START_RPC          Auto-start Metasploit RPC server ('true' or 'false')
-#   MCP_TRANSPORT               MCP server transport type ('stdio' or 'http')
-#   MCP_HOST                    MCP server host
-#   MCP_PORT                    MCP server port
+#   MSF_MCP_TRANSPORT           MCP server transport type ('stdio' or 'http')
+#   MSF_MCP_HOST                MCP server host
+#   MSF_MCP_PORT                MCP server port
 #
 # Examples:
 #   # Start with default configuration (default: MessagePack connection type, so credentials must be provided)
-#   msfmcp --user msf_user --password msf_pass
+#   msfmcpd --user msf_user --password msf_pass
 #
 #   # Start with custom configuration and logging
-#   msfmcp --config ./config/mcp_config.yaml --enable-logging
+#   msfmcpd --config ./config/mcp_config.yaml --enable-logging
 #
 #   # Use environment variables to override the configuration
-#   MSF_API_HOST=192.168.33.44 msfmcp --config ./config/mcp_config.yaml
+#   MSF_API_HOST=192.168.33.44 msfmcpd --config ./config/mcp_config.yaml
 
 require 'bundler/setup'
 
 lib_path = File.join(File.dirname(__dir__), 'lib')
 $LOAD_PATH.unshift(lib_path) unless $LOAD_PATH.include?(lib_path)
 
-require 'msfmcp'
+require 'msf/core/mcp'
 
-MsfMcp::Application.new(ARGV).run
+Msf::MCP::Application.new(ARGV).run

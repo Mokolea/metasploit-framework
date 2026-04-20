@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'msfmcp'
+require 'msf/core/mcp'
 require 'webmock/rspec'
 
 RSpec.describe 'Tool Execution End-to-End - Search Modules' do
@@ -59,10 +59,10 @@ RSpec.describe 'Tool Execution End-to-End - Search Modules' do
         )
 
       # Create rate limiter
-      limiter = MsfMcp::Security::RateLimiter.new(requests_per_minute: 60, burst_size: 10)
+      limiter = Msf::MCP::Security::RateLimiter.new(requests_per_minute: 60, burst_size: 10)
 
       # Create authenticated client
-      client = MsfMcp::Metasploit::MessagePackClient.new(
+      client = Msf::MCP::Metasploit::MessagePackClient.new(
         host: host,
         port: port,
         endpoint: endpoint
@@ -76,7 +76,7 @@ RSpec.describe 'Tool Execution End-to-End - Search Modules' do
       }
 
       # Execute search through complete stack
-      result = MsfMcp::MCPTools::SearchModules.call(
+      result = Msf::MCP::Tools::SearchModules.call(
         query: 'smb',
         server_context: server_context
       )
@@ -122,8 +122,8 @@ RSpec.describe 'Tool Execution End-to-End - Search Modules' do
           headers: { 'Content-Type' => 'binary/message-pack' }
         )
 
-      limiter = MsfMcp::Security::RateLimiter.new(requests_per_minute: 60, burst_size: 10)
-      client = MsfMcp::Metasploit::MessagePackClient.new(
+      limiter = Msf::MCP::Security::RateLimiter.new(requests_per_minute: 60, burst_size: 10)
+      client = Msf::MCP::Metasploit::MessagePackClient.new(
         host: host,
         port: port,
         endpoint: endpoint
@@ -136,7 +136,7 @@ RSpec.describe 'Tool Execution End-to-End - Search Modules' do
       }
 
       # Execute search
-      result = MsfMcp::MCPTools::SearchModules.call(
+      result = Msf::MCP::Tools::SearchModules.call(
         query: 'nonexistent_module_xyz',
         server_context: server_context
       )
@@ -175,8 +175,8 @@ RSpec.describe 'Tool Execution End-to-End - Search Modules' do
           headers: { 'Content-Type' => 'binary/message-pack' }
         )
 
-      limiter = MsfMcp::Security::RateLimiter.new(requests_per_minute: 60, burst_size: 10)
-      client = MsfMcp::Metasploit::MessagePackClient.new(
+      limiter = Msf::MCP::Security::RateLimiter.new(requests_per_minute: 60, burst_size: 10)
+      client = Msf::MCP::Metasploit::MessagePackClient.new(
         host: host,
         port: port,
         endpoint: endpoint
@@ -189,7 +189,7 @@ RSpec.describe 'Tool Execution End-to-End - Search Modules' do
       }
 
       # Execute search with pagination
-      result = MsfMcp::MCPTools::SearchModules.call(
+      result = Msf::MCP::Tools::SearchModules.call(
         query: 'scanner',
         limit: 2,
         offset: 1,

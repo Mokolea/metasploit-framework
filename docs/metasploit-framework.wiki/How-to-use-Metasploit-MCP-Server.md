@@ -94,6 +94,7 @@ Options:
   --user USER                  MSF API username (for MessagePack auth)
   --password PASS              MSF API password (for MessagePack auth)
   --no-auto-start-rpc          Disable automatic RPC server startup
+  --mcp-transport TRANSPORT    MCP server transport type ('stdio' or 'http')
   -h, --help                   Show this help message
   -v, --version                Show version information
 ```
@@ -113,9 +114,9 @@ All configuration settings can be overridden by environment variables:
 | `MSF_API_PASSWORD` | RPC API password (for MessagePack auth) |
 | `MSF_API_TOKEN` | RPC API token (for JSON-RPC auth) |
 | `MSF_AUTO_START_RPC` | Auto-start RPC server (`true` or `false`) |
-| `MCP_TRANSPORT` | MCP transport type (`stdio` or `http`) |
-| `MCP_HOST` | MCP server host (for HTTP transport) |
-| `MCP_PORT` | MCP server port (for HTTP transport) |
+| `MSF_MCP_TRANSPORT` | MCP transport type (`stdio` or `http`) |
+| `MSF_MCP_HOST` | MCP server host (for HTTP transport) |
+| `MSF_MCP_PORT` | MCP server port (for HTTP transport) |
 
 Example using environment variables:
 
