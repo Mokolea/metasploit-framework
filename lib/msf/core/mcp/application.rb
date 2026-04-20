@@ -2,7 +2,6 @@
 
 require 'msf/core/mcp'
 require 'optparse'
-require_relative 'logging/logger'
 
 module Msf::MCP
   # Main application class that orchestrates the MCP server startup and lifecycle
@@ -14,7 +13,7 @@ module Msf::MCP
     BANNER
 
     # For testing purposes:
-    attr_reader :config, :logger, :msf_client, :mcp_server, :rate_limiter, :options, :rpc_manager
+    attr_reader :config, :msf_client, :mcp_server, :rate_limiter, :options, :rpc_manager
 
     # Initialize the application with command-line arguments
     #
@@ -24,7 +23,6 @@ module Msf::MCP
       @argv = argv.dup
       @output = output
       @options = {}
-      @logger = nil
       @config = nil
       @msf_client = nil
       @mcp_server = nil
@@ -66,23 +64,16 @@ module Msf::MCP
     # Shutdown the application gracefully
     #
     # Performs cleanup operations before process termination:
-    # - Logs shutdown event
+    # - Logs shutdown event via Rex
     # - Closes MCP server and Metasploit client connections
     # - Cleans up resources
     #
     # @param signal [String] Signal name (e.g., 'INT', 'TERM')
     # @return [void]
     def shutdown(signal = 'INT')
-      @logger.log(
-        level: 'INFO',
-        message: 'Shutting down',
-        context: { signal: "SIG#{signal}" }
-      ) if @logger
-
-      # Gracefully shutdown MCP server and Metasploit client
-      @mcp_server&.shutdown if @mcp_server
+      ilog("Shutting down (SIG#{signal})", LOG_SOURCE, Rex::Logging::LEV_0)
+      @mcp_server&.shutdown
       @rpc_manager&.stop_rpc_server
-
       @output.puts "\nShutdown complete"
     end
 
@@ -137,22 +128,28 @@ module Msf::MCP
       parser.parse!(@argv)
     end
 
-    # Initialize the logger with config file settings and CLI overrides
+    # Register a Rex log source when logging is enabled.
+    #
+    # Selects a Flatfile sink pointed at the configured log path and wraps it
+    # with the sanitizing middleware unless sanitization has been explicitly
+    # disabled in the config.
     #
     # Priority: CLI flags > config file > defaults
     #
     # @return [void]
     def initialize_logger
-      # Use CLI flags if provided, otherwise use config file values
-      if @options[:enable_logging_cli] || @config.dig(:logging, :enabled)
-        log_file = @options[:log_file_cli] || @config.dig(:logging, :log_file) || 'msfmcp.log'
-        log_level = @config.dig(:logging, :level) || 'INFO'
+      return unless @options[:enable_logging_cli] || @config.dig(:logging, :enabled)
 
-        @logger = Msf::MCP::Logging::Logger.new(
-          log_file: log_file,
-          log_level: log_level
-        )
-      end
+      log_file  = @options[:log_file_cli] || @config.dig(:logging, :log_file) || 'msfmcp.log'
+      log_level = (@config.dig(:logging, :level) || 'INFO').upcase
+      sanitize  = @config.dig(:logging, :sanitize) != false
+
+      threshold = log_level == 'DEBUG' ? Rex::Logging::LEV_1 : Rex::Logging::LEV_0
+      inner = Rex::Logging::Sinks::Flatfile.new(log_file)
+      sink  = sanitize ? Msf::MCP::Logging::Sinks::Sanitizing.new(inner) : inner
+
+      deregister_log_source(LOG_SOURCE) if log_source_registered?(LOG_SOURCE)
+      register_log_source(LOG_SOURCE, sink, threshold)
     end
 
     # Install signal handlers for graceful shutdown
@@ -215,8 +212,7 @@ module Msf::MCP
     def ensure_rpc_server
       @rpc_manager = Msf::MCP::RpcManager.new(
         config: @config,
-        output: @output,
-        logger: @logger
+        output: @output
       )
       @rpc_manager.ensure_rpc_available
     end
@@ -232,8 +228,7 @@ module Msf::MCP
         port: @config[:msf_api][:port],
         endpoint: @config[:msf_api][:endpoint],
         token: @config[:msf_api][:token],
-        ssl: @config[:msf_api][:ssl],
-        logger: @logger
+        ssl: @config[:msf_api][:ssl]
       )
     end
 
@@ -257,8 +252,7 @@ module Msf::MCP
       @output.puts "Initializing MCP server..."
       @mcp_server = Msf::MCP::Server.new(
         msf_client: @msf_client,
-        rate_limiter: @rate_limiter,
-        logger: @logger
+        rate_limiter: @rate_limiter
       )
     end
 
@@ -286,72 +280,44 @@ module Msf::MCP
     # Error handlers
 
     def handle_configuration_error(error)
-      @logger.log_error(
-        exception: error,
-        message: 'Configuration validation failed',
-        context: {}
-      ) if @logger
+      elog("Configuration validation failed", LOG_SOURCE, Rex::Logging::LEV_0, error: error)
       @output.puts "Configuration validation failed: #{error.message}"
       exit 1
     end
 
     def handle_file_not_found_error(error)
-      @logger.log_error(
-        exception: error,
-        message: 'Configuration file not found',
-        context: {}
-      ) if @logger
+      elog("Configuration file not found", LOG_SOURCE, Rex::Logging::LEV_0, error: error)
       @output.puts "Configuration file not found: #{@options[:config_path]}"
       @output.puts "Create a configuration file or specify a valid path with --config"
       exit 1
     end
 
     def handle_connection_error(error)
-      @logger.log_error(
-        exception: error,
-        message: 'Connection error',
-        context: { host: @config[:msf_api][:host], port: @config[:msf_api][:port] }
-      ) if @logger
+      elog("Connection error to #{@config[:msf_api][:host]}:#{@config[:msf_api][:port]}", LOG_SOURCE, Rex::Logging::LEV_0, error: error)
       @output.puts "Connection error to Metasploit RPC at #{@config[:msf_api][:host]}:#{@config[:msf_api][:port]} - #{error.message}"
       exit 1
     end
 
     def handle_api_error(error)
-      @logger.log_error(
-        exception: error,
-        message: 'Metasploit API error',
-        context: {}
-      ) if @logger
+      elog("Metasploit API error", LOG_SOURCE, Rex::Logging::LEV_0, error: error)
       @output.puts "Metasploit API error: #{error.message}"
       exit 1
     end
 
     def handle_authentication_error(error)
-      @logger.log_error(
-        exception: error,
-        message: 'Authentication error',
-        context: { username: @config[:msf_api][:user].to_s }
-      ) if @logger
+      elog("Authentication error (username: #{@config[:msf_api][:user]})", LOG_SOURCE, Rex::Logging::LEV_0, error: error)
       @output.puts "Authentication error (username: #{@config[:msf_api][:user]}): #{error.message}"
       exit 1
     end
 
     def handle_rpc_startup_error(error)
-      @logger.log_error(
-        exception: error,
-        message: 'RPC startup error',
-        context: {}
-      ) if @logger
+      elog("RPC startup error", LOG_SOURCE, Rex::Logging::LEV_0, error: error)
       @output.puts "RPC startup error: #{error.message}"
       exit 1
     end
 
     def handle_fatal_error(error)
-      @logger.log_error(
-        exception: error,
-        message: 'Fatal error during startup',
-        context: {}
-      ) if @logger
+      elog("Fatal error during startup", LOG_SOURCE, Rex::Logging::LEV_0, error: error)
       @output.puts "Fatal error: #{error.message}"
       @output.puts error.backtrace.first(5).join("\n") if error.backtrace
       exit 1

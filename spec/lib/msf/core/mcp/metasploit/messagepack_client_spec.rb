@@ -223,10 +223,6 @@ RSpec.describe Msf::MCP::Metasploit::MessagePackClient do
   end
 
   describe 'debug logging' do
-    let(:logger) { instance_double(Msf::MCP::Logging::Logger) }
-    let(:client_with_logger) do
-      described_class.new(host: host, port: port, ssl: false, logger: logger)
-    end
     let(:http_mock) { instance_double(Net::HTTP) }
 
     before do
@@ -234,73 +230,12 @@ RSpec.describe Msf::MCP::Metasploit::MessagePackClient do
       allow(http_mock).to receive(:use_ssl=)
     end
 
-    it 'logs request and response at DEBUG level via authenticate' do
-      allow(http_mock).to receive(:request).and_return(
-        instance_double(Net::HTTPResponse, code: '200', body: { 'result' => 'success', 'token' => 'abc' }.to_msgpack)
-      )
-
-      expect(logger).to receive(:log).with(
-        level: 'DEBUG',
-        message: 'MessagePack request',
-        context: hash_including(body: ['auth.login', 'user', '[REDACTED]'])
-      )
-      expect(logger).to receive(:log).with(
-        level: 'DEBUG',
-        message: 'MessagePack response',
-        context: hash_including(:status, :body)
-      )
-
-      client_with_logger.authenticate('user', 'pass')
-    end
-
-    it 'logs request and response at DEBUG level via call_api' do
-      # Authenticate first to get a token
-      allow(http_mock).to receive(:request).and_return(
-        instance_double(Net::HTTPResponse, code: '200', body: { 'result' => 'success', 'token' => 'abc' }.to_msgpack)
-      )
-      allow(logger).to receive(:log)
-      client_with_logger.authenticate('user', 'pass')
-
-      # Now set up the call_api response
-      allow(http_mock).to receive(:request).and_return(
-        instance_double(Net::HTTPResponse, code: '200', body: { 'modules' => [] }.to_msgpack)
-      )
-
-      expect(logger).to receive(:log).with(
-        level: 'DEBUG',
-        message: 'MessagePack request',
-        context: hash_including(body: ['module.search', '[REDACTED]', 'smb'])
-      )
-      expect(logger).to receive(:log).with(
-        level: 'DEBUG',
-        message: 'MessagePack response',
-        context: hash_including(:status, :body)
-      )
-
-      client_with_logger.call_api('module.search', ['smb'])
-    end
-
-    it 'does not error when logger is nil via authenticate' do
+    it 'does not raise when no Rex sink is registered' do
       client_no_ssl = described_class.new(host: host, port: port, ssl: false)
       allow(http_mock).to receive(:request).and_return(
         instance_double(Net::HTTPResponse, code: '200', body: { 'result' => 'success', 'token' => 'abc' }.to_msgpack)
       )
-
       expect { client_no_ssl.authenticate('user', 'pass') }.not_to raise_error
-    end
-
-    it 'does not error when logger is nil via call_api' do
-      client_no_ssl = described_class.new(host: host, port: port, ssl: false)
-      allow(http_mock).to receive(:request).and_return(
-        instance_double(Net::HTTPResponse, code: '200', body: { 'result' => 'success', 'token' => 'abc' }.to_msgpack)
-      )
-      client_no_ssl.authenticate('user', 'pass')
-
-      allow(http_mock).to receive(:request).and_return(
-        instance_double(Net::HTTPResponse, code: '200', body: { 'modules' => [] }.to_msgpack)
-      )
-
-      expect { client_no_ssl.call_api('module.search', ['smb']) }.not_to raise_error
     end
   end
 

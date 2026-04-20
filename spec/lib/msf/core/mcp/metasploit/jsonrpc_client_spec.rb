@@ -182,10 +182,6 @@ RSpec.describe Msf::MCP::Metasploit::JsonRpcClient do
   end
 
   describe 'debug logging' do
-    let(:logger) { instance_double(Msf::MCP::Logging::Logger) }
-    let(:client_with_logger) do
-      described_class.new(host: host, port: port, endpoint: endpoint, token: token, ssl: ssl, logger: logger)
-    end
     let(:http_mock) { instance_double(Net::HTTP) }
 
     before do
@@ -194,30 +190,10 @@ RSpec.describe Msf::MCP::Metasploit::JsonRpcClient do
       allow(http_mock).to receive(:verify_mode=)
     end
 
-    it 'logs request and response at DEBUG level via call_api' do
+    it 'does not raise when no Rex sink is registered' do
       allow(http_mock).to receive(:request).and_return(
         instance_double(Net::HTTPResponse, code: '200', body: '{"result": {}}')
       )
-
-      expect(logger).to receive(:log).with(
-        level: 'DEBUG',
-        message: 'JSON-RPC request',
-        context: hash_including(:method, :endpoint, :body)
-      )
-      expect(logger).to receive(:log).with(
-        level: 'DEBUG',
-        message: 'JSON-RPC response',
-        context: hash_including(:status, :body)
-      )
-
-      client_with_logger.call_api('module.search', ['smb'])
-    end
-
-    it 'does not error when logger is nil via call_api' do
-      allow(http_mock).to receive(:request).and_return(
-        instance_double(Net::HTTPResponse, code: '200', body: '{"result": {}}')
-      )
-
       expect { client.call_api('module.search', ['smb']) }.not_to raise_error
     end
   end

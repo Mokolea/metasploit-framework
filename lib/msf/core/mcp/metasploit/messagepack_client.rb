@@ -15,8 +15,7 @@ module Msf::MCP
       # @param port [Integer] Metasploit RPC port
       # @param endpoint [String] API endpoint path (default: DEFAULT_ENDPOINT)
       # @param ssl [Boolean] Use SSL (default: true)
-      # @param logger [Msf::MCP::Logging::Logger, nil] Optional logger for debug logging
-      def initialize(host:, port:, endpoint: DEFAULT_ENDPOINT, ssl: true, logger: nil)
+      def initialize(host:, port:, endpoint: DEFAULT_ENDPOINT, ssl: true)
         @host = host
         @port = port
         @endpoint = endpoint
@@ -27,7 +26,6 @@ module Msf::MCP
         @retry_count = 0
         @max_retries = 1
         @ssl = ssl
-        @logger = logger
       end
 
       # Authenticate with Metasploit RPC
@@ -180,12 +178,7 @@ module Msf::MCP
         request['Content-Type'] = 'binary/message-pack'
         request.body = request_body
 
-        # Log request at DEBUG level
-        @logger&.log(
-          level: 'DEBUG',
-          message: 'MessagePack request',
-          context: { method: request.method, endpoint: @endpoint, body: sanitize_request_array(request_array) }
-        )
+        dlog("MessagePack request method=#{request.method} endpoint=#{@endpoint} body=#{sanitize_request_array(request_array).inspect}", LOG_SOURCE, Rex::Logging::LEV_1)
 
         # Send request and parse response
         begin
@@ -206,12 +199,7 @@ module Msf::MCP
                      raise ConnectionError, "HTTP #{response.code}: #{response.message}"
                    end
 
-          # Log response at DEBUG level
-          @logger&.log(
-            level: 'DEBUG',
-            message: 'MessagePack response',
-            context: { status: response.code, body: parsed }
-          )
+          dlog("MessagePack response status=#{response.code}", LOG_SOURCE, Rex::Logging::LEV_1)
 
           parsed
         rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH => e

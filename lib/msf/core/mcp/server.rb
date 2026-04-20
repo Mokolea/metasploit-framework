@@ -19,11 +19,9 @@ module Msf::MCP
     #
     # @param msf_client [Metasploit::Client] Configured and authenticated Metasploit client
     # @param rate_limiter [Security::RateLimiter] Configured rate limiter
-    # @param logger [Logging::Logger] Optional logger for HTTP transport (default: nil)
     #
-    def initialize(msf_client:, rate_limiter:, logger: nil)
+    def initialize(msf_client:, rate_limiter:)
       @msf_client = msf_client
-      @logger = logger
 
       # Create server context (passed to all tool calls)
       # Tools only need msf_client and rate_limiter
@@ -34,10 +32,8 @@ module Msf::MCP
 
       # Create MCP configuration with instrumentation callbacks
       mcp_config = ::MCP::Configuration.new
-      if @logger
-        mcp_config.instrumentation_callback = create_instrumentation_callback
-        mcp_config.exception_reporter = create_exception_reporter
-      end
+      mcp_config.instrumentation_callback = create_instrumentation_callback
+      mcp_config.exception_reporter = create_exception_reporter
 
       # Initialize MCP server with all tools
       @mcp_server = ::MCP::Server.new(
@@ -119,9 +115,9 @@ module Msf::MCP
       # Create the Rack application following official MCP example
       app = proc do |env|
         request = Rack::Request.new(env)
-        log_http_request(request) if @logger
+        log_http_request(request)
         response = transport.handle_request(request)
-        log_http_response(request, response) if @logger
+        log_http_response(request, response)
         response
       end
 
@@ -143,89 +139,69 @@ module Msf::MCP
         rack_app,
         Port: port,
         Host: host,
-        Silent: !@logger
+        Silent: true
       )
 
       @mcp_server
     end
 
     ##
-    # Log HTTP request details
+    # Log HTTP request details via Rex logging
     #
     # @param request [Rack::Request] The HTTP request
     #
     def log_http_request(request)
-      return unless @logger
-
       if request.post?
         body = request.body.read
         request.body.rewind
         begin
           parsed_body = JSON.parse(body)
-          @logger.log(
-            level: 'INFO',
-            message: "HTTP Request: #{parsed_body['method']} (id: #{parsed_body['id']})",
-            context: {
-              method: parsed_body['method'],
-              id: parsed_body['id'],
-              params: parsed_body['params']
-            }
+          ilog(
+            "HTTP Request: #{parsed_body['method']} (id: #{parsed_body['id']}) params=#{parsed_body['params'].inspect}",
+            LOG_SOURCE, Rex::Logging::LEV_0
           )
         rescue JSON::ParserError
-          @logger.log(level: 'WARN', message: 'Invalid JSON in HTTP request')
+          wlog('Invalid JSON in HTTP request', LOG_SOURCE, Rex::Logging::LEV_0)
         end
       elsif request.get?
         session_id = request.env['HTTP_MCP_SESSION_ID'] ||
                      Rack::Utils.parse_query(request.env['QUERY_STRING'])['sessionId']
-        @logger.log(
-          level: 'INFO',
-          message: 'SSE connection request',
-          context: { session_id: session_id }
-        )
+        ilog("SSE connection request session_id=#{session_id.inspect}", LOG_SOURCE, Rex::Logging::LEV_0)
       end
     end
 
     ##
-    # Log HTTP response details
+    # Log HTTP response details via Rex logging
     #
     # @param request [Rack::Request] The HTTP request
     # @param response [Array] The Rack response [status, headers, body]
     #
     def log_http_response(request, response)
-      return unless @logger
-
       status, headers, body = response
 
       if body.is_a?(Array) && !body.empty? && request.post?
         begin
           parsed_response = JSON.parse(body.first)
           if parsed_response['error']
-            @logger.log(
-              level: 'ERROR',
-              message: "HTTP Response error: #{parsed_response['error']['message']}",
-              context: { error_code: parsed_response['error']['code'] }
+            elog(
+              "HTTP Response error: #{parsed_response['error']['message']} (code: #{parsed_response['error']['code']})",
+              LOG_SOURCE, Rex::Logging::LEV_0
             )
           elsif parsed_response['accepted']
-            @logger.log(level: 'INFO', message: 'Response sent via SSE stream')
+            ilog('Response sent via SSE stream', LOG_SOURCE, Rex::Logging::LEV_0)
           else
-            @logger.log(
-              level: 'INFO',
-              message: "HTTP Response: success (id: #{parsed_response['id']})",
-              context: {
-                id: parsed_response['id'],
-                session_id: headers['Mcp-Session-Id']
-              }
+            ilog(
+              "HTTP Response: success (id: #{parsed_response['id']}) session=#{headers['Mcp-Session-Id'].inspect}",
+              LOG_SOURCE, Rex::Logging::LEV_0
             )
           end
         rescue JSON::ParserError
-          @logger.log(level: 'WARN', message: 'Invalid JSON in HTTP response')
+          wlog('Invalid JSON in HTTP response', LOG_SOURCE, Rex::Logging::LEV_0)
         end
       elsif request.get? && status == 200
-        @logger.log(level: 'INFO', message: 'SSE stream established')
+        ilog('SSE stream established', LOG_SOURCE, Rex::Logging::LEV_0)
       end
     end
-
-    private
 
     ##
     # Create instrumentation callback for MCP SDK
@@ -237,19 +213,13 @@ module Msf::MCP
     # - Errors (with error type, e.g., tool_not_found)
     # - Any additional data from the MCP SDK
     #
-    # All data keys are logged in the context.
-    #
-    # @return [Proc] Callback that logs instrumentation data
+    # @return [Proc] Callback that logs instrumentation data via Rex
     #
     def create_instrumentation_callback
-      return nil unless @logger
-
       ->(data) do
-        # Determine log level based on presence of error
-        level = data[:error] ? 'ERROR' : 'INFO'
+        return unless data
 
         # Build message based on instrumentation type
-        # Use first available key to create a descriptive message
         message = if data[:error]
                     "MCP Error: #{data[:error]}"
                   elsif data[:tool_name]
@@ -265,14 +235,15 @@ module Msf::MCP
                   end
 
         # Add duration to message if available
+        message = message.dup
         message << " (#{(data[:duration] * 1000).round(2)}ms)" if data[:duration]
+        message << " #{data.inspect}" unless data.empty?
 
-        # Log with all data keys preserved in context
-        @logger.log(
-          level: level,
-          message: message,
-          context: data  # All keys from data hash are logged here
-        )
+        if data[:error]
+          elog(message, LOG_SOURCE, Rex::Logging::LEV_0)
+        else
+          ilog(message, LOG_SOURCE, Rex::Logging::LEV_0)
+        end
       end
     end
 
@@ -284,16 +255,16 @@ module Msf::MCP
     # - exception: The Ruby exception object
     # - context: Hash with :request (JSON string) or :notification (method name string)
     #
-    # @return [Proc] Callback that logs exceptions
+    # @return [Proc] Callback that logs exceptions via Rex
     #
     def create_exception_reporter
-      return nil unless @logger
-
       ->(exception, context) do
+        return unless exception || context
+
         # Determine the context type and parse data
         error_context = {}
 
-        if context[:request]
+        if context&.fetch(:request, nil)
           error_context[:type] = 'request'
           if context[:request].is_a?(Hash)
             error_context[:method] = context.dig(:request, :name) || 'unknown'
@@ -301,7 +272,7 @@ module Msf::MCP
           else
             error_context[:raw_data] = context[:request].inspect
           end
-        elsif context[:notification]
+        elsif context&.fetch(:notification, nil)
           error_context[:type] = 'notification'
           # context[:notification] is the notification method name (string)
           error_context[:method] = context[:notification]
@@ -310,11 +281,11 @@ module Msf::MCP
           error_context[:raw_data] = context.inspect
         end
 
-        @logger.log_error(
-          exception: exception,
-          message: "Error during #{error_context[:type]} processing#{error_context[:method] ? " (#{error_context[:method]})" : ''}",
-          context: error_context
-        )
+        msg = "Error during #{error_context[:type]} processing"
+        msg << " (#{error_context[:method]})" if error_context[:method] && !error_context[:method].empty?
+        msg << " #{error_context.inspect}"
+
+        elog(msg, LOG_SOURCE, Rex::Logging::LEV_0, error: exception)
       end
     end
   end

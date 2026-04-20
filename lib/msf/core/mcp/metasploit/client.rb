@@ -20,12 +20,10 @@ module Msf::MCP
       # @param endpoint [String] API endpoint path
       # @param token [String, nil] API token (for json-rpc)
       # @param ssl [Boolean] Use SSL (default: true)
-      # @param logger [Msf::MCP::Logging::Logger, nil] Optional logger for debug logging
       #
-      def initialize(api_type:, host:, port:, endpoint: nil, token: nil, ssl: true, logger: nil)
-        @client = create_client(api_type: api_type, host: host, port: port, endpoint: endpoint, token: token, ssl: ssl, logger: logger)
+      def initialize(api_type:, host:, port:, endpoint: nil, token: nil, ssl: true)
+        @client = create_client(api_type: api_type, host: host, port: port, endpoint: endpoint, token: token, ssl: ssl)
       end
-
 
       private
 
@@ -36,10 +34,9 @@ module Msf::MCP
       # @param endpoint [String] API endpoint path
       # @param token [String, nil] API token (for json-rpc)
       # @param ssl [Boolean] Use SSL (default: true)
-      # @param logger [Msf::MCP::Logging::Logger, nil] Optional logger for debug logging
       # @return [MessagePackClient, JsonRpcClient] Client instance
       # @raise [Error] If invalid API type specified
-      def create_client(api_type:, host:, port:, endpoint: nil, token: nil, ssl: true, logger: nil)
+      def create_client(api_type:, host:, port:, endpoint: nil, token: nil, ssl: true)
         case api_type
         when 'messagepack'
           require_relative 'messagepack_client'
@@ -47,8 +44,7 @@ module Msf::MCP
             host: host,
             port: port,
             endpoint: endpoint || MessagePackClient::DEFAULT_ENDPOINT,
-            ssl: ssl,
-            logger: logger
+            ssl: ssl
           )
         when 'json-rpc'
           require_relative 'jsonrpc_client'
@@ -57,8 +53,7 @@ module Msf::MCP
             port: port,
             endpoint: endpoint || JsonRpcClient::DEFAULT_ENDPOINT,
             ssl: ssl,
-            token: token,
-            logger: logger
+            token: token
           )
         else
           raise Error, "Invalid API type: #{api_type}"

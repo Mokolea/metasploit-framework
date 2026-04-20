@@ -18,8 +18,7 @@ module Msf::MCP
       # @param endpoint [String] API endpoint path (default: DEFAULT_ENDPOINT)
       # @param token [String] Bearer authentication token
       # @param ssl [Boolean] Use SSL (default: true)
-      # @param logger [Msf::MCP::Logging::Logger, nil] Optional logger for debug logging
-      def initialize(host:, port:, endpoint: DEFAULT_ENDPOINT, token:, ssl: true, logger: nil)
+      def initialize(host:, port:, endpoint: DEFAULT_ENDPOINT, token:, ssl: true)
         @host = host
         @port = port
         @endpoint = endpoint
@@ -27,7 +26,6 @@ module Msf::MCP
         @request_id = 0
         @http = nil
         @ssl = ssl
-        @logger = logger
       end
 
       # No-op for JSON-RPC: authentication uses a pre-configured bearer token.
@@ -158,12 +156,7 @@ module Msf::MCP
         request['Authorization'] = "Bearer #{@token}"
         request.body = request_body
 
-        # Log request at DEBUG level
-        @logger&.log(
-          level: 'DEBUG',
-          message: 'JSON-RPC request',
-          context: { method: request.method, endpoint: @endpoint, body: request_body }
-        )
+        dlog("JSON-RPC request method=#{request.method} endpoint=#{@endpoint}", LOG_SOURCE, Rex::Logging::LEV_1)
 
         # Send request and parse response
         begin
@@ -182,12 +175,7 @@ module Msf::MCP
                      raise ConnectionError, "HTTP #{response.code}: #{response.message}"
                    end
 
-          # Log response at DEBUG level
-          @logger&.log(
-            level: 'DEBUG',
-            message: 'JSON-RPC response',
-            context: { status: response.code, body: response.body }
-          )
+          dlog("JSON-RPC response status=#{response.code}", LOG_SOURCE, Rex::Logging::LEV_1)
 
           parsed
         rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH => e

@@ -121,49 +121,52 @@ RSpec.describe Msf::MCP::Application do
   end
 
   describe '#initialize_logger' do
-    it 'does not create logger by default' do
+    let(:log_file) { Tempfile.new('app_test_log').tap(&:close).path }
+
+    after do
+      deregister_log_source(Msf::MCP::LOG_SOURCE) if log_source_registered?(Msf::MCP::LOG_SOURCE)
+      File.delete(log_file) if File.exist?(log_file)
+    end
+
+    it 'does not register a Rex source when logging is disabled' do
       app = described_class.new([], output: output)
-      # Need to load config first since logger initialization depends on it
       app.instance_variable_set(:@config, {})
       app.send(:initialize_logger)
 
-      expect(app.logger).to be_nil
+      expect(log_source_registered?(Msf::MCP::LOG_SOURCE)).to be false
     end
 
-    it 'creates logger with enabled state when --enable-logging is set' do
-      app = described_class.new(['--enable-logging'], output: output)
+    it 'registers the Rex source when --enable-logging is set' do
+      app = described_class.new(['--enable-logging', '--log-file', log_file], output: output)
       app.send(:parse_arguments)
-      # Set config with logging disabled
-      app.instance_variable_set(:@config, { logging: { enabled: false, level: 'INFO', log_file: 'msfmcp.log' } })
+      app.instance_variable_set(:@config, { logging: { enabled: false, level: 'INFO' } })
       app.send(:initialize_logger)
 
-      expect(app.logger).to be_a(Msf::MCP::Logging::Logger)
+      expect(log_source_registered?(Msf::MCP::LOG_SOURCE)).to be true
     end
 
-    it 'uses custom log file path from CLI' do
-      app = described_class.new(['--log-file', 'custom.log'], output: output)
+    it 'registers the Rex source when logging.enabled is true in config' do
+      app = described_class.new([], output: output)
+      app.instance_variable_set(:@config, { logging: { enabled: true, level: 'INFO', log_file: log_file } })
+      app.send(:initialize_logger)
+
+      expect(log_source_registered?(Msf::MCP::LOG_SOURCE)).to be true
+    end
+
+    it 'uses CLI log file path over config file path' do
+      cli_log = Tempfile.new('cli_log').tap(&:close).path
+      app = described_class.new(['--log-file', cli_log], output: output)
       app.send(:parse_arguments)
-      app.instance_variable_set(:@config, { logging: { enabled: true, level: 'INFO', log_file: 'default.log' } })
+      app.instance_variable_set(:@config, { logging: { enabled: true, level: 'INFO', log_file: log_file } })
       app.send(:initialize_logger)
 
-      expect(app.logger.log_file).to eq('custom.log')  # CLI overrides config
-    end
+      # Emit a message and confirm it went to the CLI path, not the config path
+      ilog('probe', Msf::MCP::LOG_SOURCE, Rex::Logging::LEV_0)
+      expect(File.read(cli_log)).to include('probe')
+      expect(File.read(log_file)).to be_empty
 
-    it 'uses log file path from config file' do
-      app = described_class.new([], output: output)
-      app.instance_variable_set(:@config, { logging: { enabled: true, level: 'WARN', log_file: 'config_file.log' } })
-      app.send(:initialize_logger)
-
-      expect(app.logger.log_file).to eq('config_file.log')
-      expect(app.logger.log_level).to eq('WARN')
-    end
-
-    it 'uses log level from config file' do
-      app = described_class.new([], output: output)
-      app.instance_variable_set(:@config, { logging: { enabled: true, level: 'DEBUG', log_file: 'test.log' } })
-      app.send(:initialize_logger)
-
-      expect(app.logger.log_level).to eq('DEBUG')
+      deregister_log_source(Msf::MCP::LOG_SOURCE)
+      File.delete(cli_log) if File.exist?(cli_log)
     end
   end
 
@@ -276,8 +279,7 @@ RSpec.describe Msf::MCP::Application do
         port: 55553,
         ssl: true,
         endpoint: '/api/',
-        token: nil,
-        logger: nil
+        token: nil
       ).and_return(mock_client)
 
       app.send(:initialize_metasploit_client)
@@ -330,18 +332,15 @@ RSpec.describe Msf::MCP::Application do
     it 'creates MCP server with dependencies' do
       mock_client = instance_double(Msf::MCP::Metasploit::Client)
       mock_rate_limiter = instance_double(Msf::MCP::Security::RateLimiter)
-      mock_logger = instance_double(Msf::MCP::Logging::Logger)
       mock_mcp_server = instance_double(Msf::MCP::Server)
 
       app = described_class.new([], output: output)
       app.instance_variable_set(:@msf_client, mock_client)
       app.instance_variable_set(:@rate_limiter, mock_rate_limiter)
-      app.instance_variable_set(:@logger, mock_logger)
 
       expect(Msf::MCP::Server).to receive(:new).with(
         msf_client: mock_client,
-        rate_limiter: mock_rate_limiter,
-        logger: mock_logger
+        rate_limiter: mock_rate_limiter
       ).and_return(mock_mcp_server)
 
       app.send(:initialize_mcp_server)
@@ -402,35 +401,16 @@ RSpec.describe Msf::MCP::Application do
   end
 
   describe '#shutdown' do
-    it 'logs shutdown message when logger is enabled' do
-      mock_logger = instance_double(Msf::MCP::Logging::Logger)
-
+    it 'outputs shutdown complete' do
       app = described_class.new([], output: output)
-      app.instance_variable_set(:@logger, mock_logger)
-
-      expect(mock_logger).to receive(:log).with(
-        level: 'INFO',
-        message: 'Shutting down',
-        context: { signal: 'SIGINT' }
-      )
-
       app.shutdown('INT')
 
       expect(output.string).to include('Shutdown complete')
     end
 
-    it 'does not log when logger is disabled' do
+    it 'does not raise when no Rex sink is registered' do
       app = described_class.new([], output: output)
-      app.shutdown('TERM')
-
-      expect(output.string).to include('Shutdown complete')
-    end
-
-    it 'handles missing logger gracefully' do
-      app = described_class.new([], output: output)
-
-      expect { app.shutdown('INT') }.not_to raise_error
-      expect(output.string).to include('Shutdown complete')
+      expect { app.shutdown('TERM') }.not_to raise_error
     end
 
     it 'calls shutdown on mcp_server when present' do
@@ -542,23 +522,6 @@ RSpec.describe Msf::MCP::Application do
       end
     end
 
-    it 'passes logger to RpcManager' do
-      mock_logger = instance_double(Msf::MCP::Logging::Logger)
-
-      app = described_class.new([], output: output)
-      app.instance_variable_set(:@config, valid_config)
-      app.instance_variable_set(:@logger, mock_logger)
-
-      mock_rpc_manager = instance_double(Msf::MCP::RpcManager)
-      allow(mock_rpc_manager).to receive(:ensure_rpc_available)
-
-      expect(Msf::MCP::RpcManager).to receive(:new).with(
-        hash_including(logger: mock_logger)
-      ).and_return(mock_rpc_manager)
-
-      app.send(:ensure_rpc_server)
-    end
-
     it 'passes output to RpcManager' do
       app = described_class.new([], output: output)
       app.instance_variable_set(:@config, valid_config)
@@ -586,20 +549,6 @@ RSpec.describe Msf::MCP::Application do
         expect(output.string).to include('Configuration validation failed')
       end
 
-      it 'logs error when logger is enabled' do
-        mock_logger = instance_double(Msf::MCP::Logging::Logger)
-        app = described_class.new([], output: output)
-        app.instance_variable_set(:@logger, mock_logger)
-        error = Msf::MCP::Config::ValidationError.new({ 'msf_api.type': 'is invalid' })
-
-        expect(mock_logger).to receive(:log_error).with(
-          exception: error,
-          message: 'Configuration validation failed',
-          context: {}
-        )
-
-        expect { app.send(:handle_configuration_error, error) }.to raise_error(SystemExit)
-      end
     end
 
     describe '#handle_file_not_found_error' do

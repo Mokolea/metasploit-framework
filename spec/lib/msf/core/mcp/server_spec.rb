@@ -338,349 +338,161 @@ RSpec.describe Msf::MCP::Server do
   describe 'instrumentation and logging' do
     require 'tempfile'
 
-    let(:log_file) { Tempfile.new(['test_log', '.log']) }
-    let(:logger) { Msf::MCP::Logging::Logger.new(log_file: log_file.path) }
-    let(:server_with_logger) do
-      described_class.new(
-        msf_client: mock_msf_client,
-        rate_limiter: rate_limiter,
-        logger: logger
-      )
-    end
-    let(:mcp_server_with_logger) { server_with_logger.start }
+    let(:log_file) { Tempfile.new(['test_log', '.log']).tap(&:close).path }
 
+    # Wire a Rex flatfile sink for the duration of each example.
     before do
-      # Mock the transport to prevent the server to actually start listening
+      deregister_log_source(Msf::MCP::LOG_SOURCE) if log_source_registered?(Msf::MCP::LOG_SOURCE)
+      register_log_source(Msf::MCP::LOG_SOURCE, Rex::Logging::Sinks::Flatfile.new(log_file), Rex::Logging::LEV_0)
+
       transport = instance_double(MCP::Server::Transports::StdioTransport)
       allow(::MCP::Server::Transports::StdioTransport).to receive(:new).and_return(transport)
       allow(transport).to receive(:open)
     end
 
     after do
-      log_file.close
-      log_file.unlink
+      deregister_log_source(Msf::MCP::LOG_SOURCE) if log_source_registered?(Msf::MCP::LOG_SOURCE)
+      File.delete(log_file) if File.exist?(log_file)
     end
 
+    let(:server) { described_class.new(msf_client: mock_msf_client, rate_limiter: rate_limiter) }
+    let(:mcp_server) { server.start }
+
     describe 'instrumentation_callback' do
-      it 'is configured when logger is provided' do
-        expect(mcp_server_with_logger.configuration.instrumentation_callback).not_to be_nil
-        expect(mcp_server_with_logger.configuration.instrumentation_callback).to be_a(Proc)
+      it 'is always configured as a Proc' do
+        expect(mcp_server.configuration.instrumentation_callback).to be_a(Proc)
       end
 
-      context 'when logger is not provided' do
-        let(:server_without_logger) do
-          described_class.new(
-            msf_client: mock_msf_client,
-            rate_limiter: rate_limiter,
-            logger: nil
-          )
-        end
-        let(:mcp_server_without_logger) { server_without_logger.start }
-
-        it 'uses a default no-op callback' do
-          expect(mcp_server_without_logger.configuration.instrumentation_callback).not_to be_nil
-          expect(mcp_server_without_logger.configuration.instrumentation_callback).to be_a(Proc)
-          expect(mcp_server_without_logger.configuration.instrumentation_callback.call(nil)).to be_nil
-        end
+      it 'is a no-op when called with nil' do
+        expect { mcp_server.configuration.instrumentation_callback.call(nil) }.not_to raise_error
       end
 
-      it 'logs instrumentation data with errors' do
-        data = {
-          method: 'tools/call',
-          tool_name: 'test_tool',
-          error: 'tool_not_found',
-          duration: 0.123
-        }
-
-        mcp_server_with_logger.configuration.instrumentation_callback.call(data)
-
-        log_content = File.read(log_file.path)
-        expect(log_content).to include('ERROR')
-        expect(log_content).to include('MCP Error: tool_not_found')
-        expect(log_content).to include('test_tool')
+      it 'logs errors with [e] severity code' do
+        mcp_server.configuration.instrumentation_callback.call(
+          method: 'tools/call', tool_name: 'test_tool', error: 'tool_not_found', duration: 0.123
+        )
+        content = File.read(log_file)
+        expect(content).to match(/\[e\(\d\)\]/)
+        expect(content).to include('MCP Error: tool_not_found')
+        expect(content).to include('test_tool')
       end
 
-      it 'logs successful tool calls' do
-        data = {
-          method: 'tools/call',
-          tool_name: 'search_modules',
-          duration: 0.456
-        }
-
-        mcp_server_with_logger.configuration.instrumentation_callback.call(data)
-
-        log_content = File.read(log_file.path)
-        expect(log_content).to include('INFO')
-        expect(log_content).to include('Tool call: search_modules')
-        expect(log_content).to include('456')  # Duration in ms
+      it 'logs successful tool calls with [i] severity code' do
+        mcp_server.configuration.instrumentation_callback.call(
+          method: 'tools/call', tool_name: 'search_modules', duration: 0.456
+        )
+        content = File.read(log_file)
+        expect(content).to match(/\[i\(\d\)\]/)
+        expect(content).to include('Tool call: search_modules')
+        expect(content).to include('456')
       end
 
-      it 'logs missing_required_arguments errors' do
-        data = {
-          method: 'tools/call',
-          tool_name: 'msf_module_info',
-          error: 'missing_required_arguments',
-          duration: 0.005
-        }
-
-        mcp_server_with_logger.configuration.instrumentation_callback.call(data)
-
-        log_content = File.read(log_file.path)
-        expect(log_content).to include('ERROR')
-        expect(log_content).to include('MCP Error: missing_required_arguments')
-        expect(log_content).to include('msf_module_info')
-        expect(log_content).to include('5.0ms')
-      end
-
-      it 'logs invalid_schema errors' do
-        data = {
-          method: 'tools/call',
-          tool_name: 'msf_search_modules',
-          error: 'invalid_schema',
-          duration: 0.002
-        }
-
-        mcp_server_with_logger.configuration.instrumentation_callback.call(data)
-
-        log_content = File.read(log_file.path)
-        expect(log_content).to include('ERROR')
-        expect(log_content).to include('MCP Error: invalid_schema')
-        expect(log_content).to include('2.0ms')
+      it 'includes duration in milliseconds' do
+        mcp_server.configuration.instrumentation_callback.call(
+          method: 'tools/call', tool_name: 'test_tool', duration: 1.23456
+        )
+        expect(File.read(log_file)).to include('1234.56ms')
       end
 
       it 'logs prompt calls' do
-        data = {
-          method: 'prompts/get',
-          prompt_name: 'exploit_suggestion',
-          duration: 0.123
-        }
-
-        mcp_server_with_logger.configuration.instrumentation_callback.call(data)
-
-        log_content = File.read(log_file.path)
-        expect(log_content).to include('INFO')
-        expect(log_content).to include('Prompt call: exploit_suggestion')
-        expect(log_content).to include('123.0ms')
+        mcp_server.configuration.instrumentation_callback.call(
+          method: 'prompts/get', prompt_name: 'exploit_suggestion', duration: 0.123
+        )
+        content = File.read(log_file)
+        expect(content).to include('Prompt call: exploit_suggestion')
+        expect(content).to include('123.0ms')
       end
 
       it 'logs resource calls' do
-        data = {
-          method: 'resources/read',
-          resource_uri: 'msf://exploits/windows',
-          duration: 0.089
-        }
-
-        mcp_server_with_logger.configuration.instrumentation_callback.call(data)
-
-        log_content = File.read(log_file.path)
-        expect(log_content).to include('INFO')
-        expect(log_content).to include('Resource call: msf://exploits/windows')
-        expect(log_content).to include('89.0ms')
+        mcp_server.configuration.instrumentation_callback.call(
+          method: 'resources/read', resource_uri: 'msf://exploits/windows', duration: 0.089
+        )
+        expect(File.read(log_file)).to include('Resource call: msf://exploits/windows')
       end
 
-      it 'logs generic method calls without specific type' do
-        data = {
-          method: 'ping',
-          duration: 0.001
-        }
-
-        mcp_server_with_logger.configuration.instrumentation_callback.call(data)
-
-        log_content = File.read(log_file.path)
-        expect(log_content).to include('INFO')
-        expect(log_content).to include('Method call: ping')
-        expect(log_content).to include('1.0ms')
+      it 'logs generic method calls' do
+        mcp_server.configuration.instrumentation_callback.call(method: 'ping', duration: 0.001)
+        expect(File.read(log_file)).to include('Method call: ping')
       end
 
-      it 'formats duration in milliseconds' do
-        data = {
-          method: 'tools/call',
-          tool_name: 'test_tool',
-          duration: 1.23456
-        }
-
-        mcp_server_with_logger.configuration.instrumentation_callback.call(data)
-
-        log_content = File.read(log_file.path)
-        expect(log_content).to include('1234.56ms')
+      it 'logs fallback message when no specific key is present' do
+        mcp_server.configuration.instrumentation_callback.call(some_unknown_key: 'value')
+        expect(File.read(log_file)).to include('MCP instrumentation')
       end
 
-      it 'logs all data keys in context' do
-        data = {
-          method: 'tools/call',
-          tool_name: 'msf_search_modules',
-          duration: 0.234,
-          custom_key: 'custom_value',
-          another_key: 42,
-          nested_data: { foo: 'bar' }
-        }
-
-        mcp_server_with_logger.configuration.instrumentation_callback.call(data)
-
-        log_content = File.read(log_file.path)
-        parsed_log = JSON.parse(log_content.lines.first)
-
-        expect(parsed_log['context']['method']).to eq('tools/call')
-        expect(parsed_log['context']['tool_name']).to eq('msf_search_modules')
-        expect(parsed_log['context']['duration']).to eq(0.234)
-        expect(parsed_log['context']['custom_key']).to eq('custom_value')
-        expect(parsed_log['context']['another_key']).to eq(42)
-        expect(parsed_log['context']['nested_data']).to eq({ 'foo' => 'bar' })
+      it 'omits duration text when not present' do
+        mcp_server.configuration.instrumentation_callback.call(tool_name: 'msf_host_info')
+        content = File.read(log_file)
+        expect(content).to include('Tool call: msf_host_info')
+        expect(content).not_to match(/\d+(\.\d+)?ms/)
       end
 
-      it 'logs fallback message when no specific type key is present' do
-        data = { some_unknown_key: 'value' }
-
-        mcp_server_with_logger.configuration.instrumentation_callback.call(data)
-
-        log_content = File.read(log_file.path)
-        parsed_log = JSON.parse(log_content.lines.first)
-        expect(parsed_log['level']).to eq('INFO')
-        expect(parsed_log['message']).to eq('MCP instrumentation')
-      end
-
-      it 'omits duration from message when not present' do
-        data = { tool_name: 'msf_host_info' }
-
-        mcp_server_with_logger.configuration.instrumentation_callback.call(data)
-
-        log_content = File.read(log_file.path)
-        parsed_log = JSON.parse(log_content.lines.first)
-        expect(parsed_log['message']).to eq('Tool call: msf_host_info')
-        expect(parsed_log['message']).not_to match(/\d+(\.\d+)?ms/)
+      it 'includes extra data keys in the log line' do
+        mcp_server.configuration.instrumentation_callback.call(
+          tool_name: 'msf_search_modules', custom_key: 'custom_value', another_key: 42
+        )
+        content = File.read(log_file)
+        expect(content).to include('custom_value')
+        expect(content).to include('42')
       end
     end
 
     describe 'exception_reporter' do
-      it 'is configured when logger is provided' do
-        expect(mcp_server_with_logger.configuration.exception_reporter).not_to be_nil
-        expect(mcp_server_with_logger.configuration.exception_reporter).to be_a(Proc)
+      it 'is always configured as a Proc' do
+        expect(mcp_server.configuration.exception_reporter).to be_a(Proc)
       end
 
-      context 'when logger is not provided' do
-        let(:server_without_logger) do
-          described_class.new(
-            msf_client: mock_msf_client,
-            rate_limiter: rate_limiter,
-            logger: nil
-          )
-        end
-        let(:mcp_server_without_logger) { server_without_logger.start }
-
-        it 'uses a default no-op reporter' do
-          expect(mcp_server_without_logger.configuration.exception_reporter).not_to be_nil
-          expect(mcp_server_without_logger.configuration.exception_reporter).to be_a(Proc)
-          expect(mcp_server_without_logger.configuration.exception_reporter.call(nil, nil)).to be_nil
-        end
+      it 'is a no-op when called with nil arguments' do
+        expect { mcp_server.configuration.exception_reporter.call(nil, nil) }.not_to raise_error
       end
 
-      it 'logs exceptions with context' do
-        exception = StandardError.new('Something went wrong')
-        request = {
-          name: 'msf_search_modules',
-          arguments: { 'name' => 'test_tool' }
-        }
-        context = { request: request }
-
-        mcp_server_with_logger.configuration.exception_reporter.call(exception, context)
-
-        log_content = File.read(log_file.path)
-        expect(log_content).to include('ERROR')
-        expect(log_content).to include('Error during request processing')
-        expect(log_content).to include('msf_search_modules')
-        expect(log_content).to include('Something went wrong')
-        expect(log_content).to include('test_tool')
+      it 'logs exceptions with [e] severity' do
+        mcp_server.configuration.exception_reporter.call(
+          StandardError.new('Something went wrong'),
+          { request: { name: 'msf_search_modules', arguments: { 'name' => 'test_tool' } } }
+        )
+        content = File.read(log_file)
+        expect(content).to match(/\[e\(\d\)\]/)
+        expect(content).to include('Error during request processing')
+        expect(content).to include('msf_search_modules')
+        expect(content).to include('Something went wrong')
       end
 
-      it 'logs exceptions with notification context' do
-        exception = RuntimeError.new('Notification failed')
-        context = { notification: 'notifications/initialized' }
-
-        mcp_server_with_logger.configuration.exception_reporter.call(exception, context)
-
-        log_content = File.read(log_file.path)
-        expect(log_content).to include('ERROR')
-        expect(log_content).to include('Error during notification processing')
-        expect(log_content).to include('notifications/initialized')
-        expect(log_content).to include('Notification failed')
+      it 'includes exception class and message in the log line' do
+        mcp_server.configuration.exception_reporter.call(
+          ArgumentError.new('Invalid argument provided'),
+          { request: { name: 'msf_search_modules', arguments: {} } }
+        )
+        content = File.read(log_file)
+        expect(content).to include('ArgumentError')
+        expect(content).to include('Invalid argument provided')
       end
 
-      it 'logs exceptions with full request details including tool name and arguments' do
-        exception = StandardError.new('Database connection timeout')
-        request = {
-          name: 'msf_search_modules',
-          arguments: { 'workspace' => 'default', 'query' => 'windows'}
-        }
-        context = { request: request }
-
-        mcp_server_with_logger.configuration.exception_reporter.call(exception, context)
-
-        log_content = File.read(log_file.path)
-        expect(log_content).to include('ERROR')
-        expect(log_content).to include('Error during request processing')
-        expect(log_content).to include('Database connection timeout')
-
-        parsed_log = JSON.parse(log_content.lines.first)
-        expect(parsed_log['context']['type']).to eq('request')
-        expect(parsed_log['context']['method']).to eq('msf_search_modules')
-        expect(parsed_log['context']['arguments']).to eq(request[:arguments])
+      it 'logs notification context' do
+        mcp_server.configuration.exception_reporter.call(
+          RuntimeError.new('Notification failed'),
+          { notification: 'notifications/initialized' }
+        )
+        content = File.read(log_file)
+        expect(content).to include('Error during notification processing')
+        expect(content).to include('notifications/initialized')
+        expect(content).to include('Notification failed')
       end
 
-      it 'logs exception class and message' do
-        exception = ArgumentError.new('Invalid argument provided')
-        request = {
-          name: 'msf_search_modules',
-          arguments: { 'workspace' => 'default', 'query' => 'windows'}
-        }
-        context = { request: request }
-
-        mcp_server_with_logger.configuration.exception_reporter.call(exception, context)
-
-        log_content = File.read(log_file.path)
-        parsed_log = JSON.parse(log_content.lines.first)
-
-        expect(parsed_log['exception']['class']).to eq('ArgumentError')
-        expect(parsed_log['exception']['message']).to eq('Invalid argument provided')
-        expect(parsed_log['exception']['backtrace']).to be_an(Array)
+      it 'logs unknown context type' do
+        mcp_server.configuration.exception_reporter.call(StandardError.new('Unknown error'), {})
+        content = File.read(log_file)
+        expect(content).to include('Error during unknown processing')
+        expect(content).to include('Unknown error')
       end
 
-      it 'logs exception with notification without method' do
-        exception = RuntimeError.new('Generic notification error')
-        context = { notification: '' }
-
-        mcp_server_with_logger.configuration.exception_reporter.call(exception, context)
-
-        log_content = File.read(log_file.path)
-        expect(log_content).to include('ERROR')
-        expect(log_content).to include('Error during notification processing')
-        expect(log_content).to include('Generic notification error')
-      end
-
-      it 'handles exceptions with empty context' do
-        exception = StandardError.new('Unknown error')
-        context = {}
-
-        mcp_server_with_logger.configuration.exception_reporter.call(exception, context)
-
-        log_content = File.read(log_file.path)
-        expect(log_content).to include('ERROR')
-        expect(log_content).to include('Error during unknown processing')
-        expect(log_content).to include('Unknown error')
-      end
-
-      it 'handles invalid JSON in request string' do
-        exception = StandardError.new('Parse error')
-        context = { request: 'not valid Hash' }
-
-        mcp_server_with_logger.configuration.exception_reporter.call(exception, context)
-
-        log_content = File.read(log_file.path)
-        expect(log_content).to include('ERROR')
-        expect(log_content).to include('Error during request processing')
-        expect(log_content).to include('Parse error')
-
-        parsed_log = JSON.parse(log_content.lines.first)
-        expect(parsed_log['context']['raw_data']).to eq('"not valid Hash"')
+      it 'handles a non-Hash request value' do
+        mcp_server.configuration.exception_reporter.call(
+          StandardError.new('Parse error'), { request: 'not valid Hash' }
+        )
+        content = File.read(log_file)
+        expect(content).to include('Error during request processing')
+        expect(content).to include('not valid Hash')
       end
     end
   end
@@ -690,218 +502,126 @@ RSpec.describe Msf::MCP::Server do
     require 'json'
     require 'rack'
 
-    let(:log_file) { Tempfile.new(['test_log', '.log']) }
-    let(:logger) { Msf::MCP::Logging::Logger.new(log_file: log_file.path) }
-    let(:server_with_logger) do
+    let(:log_file) { Tempfile.new(['test_log', '.log']).tap(&:close).path }
+    let(:server) do
       allow(::MCP::Server).to receive(:new).and_return(mock_mcp_server)
-      described_class.new(
-        msf_client: mock_msf_client,
-        rate_limiter: rate_limiter,
-        logger: logger
-      )
+      described_class.new(msf_client: mock_msf_client, rate_limiter: rate_limiter)
     end
-    let(:server_without_logger) do
-      allow(::MCP::Server).to receive(:new).and_return(mock_mcp_server)
-      described_class.new(
-        msf_client: mock_msf_client,
-        rate_limiter: rate_limiter,
-        logger: nil
-      )
+
+    before do
+      deregister_log_source(Msf::MCP::LOG_SOURCE) if log_source_registered?(Msf::MCP::LOG_SOURCE)
+      register_log_source(Msf::MCP::LOG_SOURCE, Rex::Logging::Sinks::Flatfile.new(log_file), Rex::Logging::LEV_0)
     end
 
     after do
-      log_file.close
-      log_file.unlink
+      deregister_log_source(Msf::MCP::LOG_SOURCE) if log_source_registered?(Msf::MCP::LOG_SOURCE)
+      File.delete(log_file) if File.exist?(log_file)
     end
 
     describe '#log_http_request' do
-      context 'with POST request and valid JSON body' do
-        it 'logs method, id, and params' do
-          body = StringIO.new({ 'method' => 'tools/call', 'id' => 42, 'params' => { 'name' => 'test' } }.to_json)
-          request = instance_double(Rack::Request, post?: true, get?: false, body: body)
+      it 'logs POST method, id, and params' do
+        body = StringIO.new({ 'method' => 'tools/call', 'id' => 42, 'params' => { 'name' => 'test' } }.to_json)
+        request = instance_double(Rack::Request, post?: true, get?: false, body: body)
 
-          server_with_logger.send(:log_http_request, request)
+        server.send(:log_http_request, request)
 
-          log_content = File.read(log_file.path)
-          parsed_log = JSON.parse(log_content.lines.first)
-          expect(parsed_log['level']).to eq('INFO')
-          expect(parsed_log['message']).to eq('HTTP Request: tools/call (id: 42)')
-          expect(parsed_log['context']['method']).to eq('tools/call')
-          expect(parsed_log['context']['id']).to eq(42)
-          expect(parsed_log['context']['params']).to eq({ 'name' => 'test' })
-        end
+        content = File.read(log_file)
+        expect(content).to match(/\[i\(\d\)\]/)
+        expect(content).to include('HTTP Request: tools/call (id: 42)')
+        expect(content).to include('"name"=>"test"')
       end
 
-      context 'with POST request and invalid JSON body' do
-        it 'logs a warning' do
-          body = StringIO.new('not valid json{{{')
-          request = instance_double(Rack::Request, post?: true, get?: false, body: body)
+      it 'logs a warning for invalid JSON in POST body' do
+        body = StringIO.new('not valid json{{{')
+        request = instance_double(Rack::Request, post?: true, get?: false, body: body)
 
-          server_with_logger.send(:log_http_request, request)
+        server.send(:log_http_request, request)
 
-          log_content = File.read(log_file.path)
-          parsed_log = JSON.parse(log_content.lines.first)
-          expect(parsed_log['level']).to eq('WARN')
-          expect(parsed_log['message']).to eq('Invalid JSON in HTTP request')
-        end
+        expect(File.read(log_file)).to match(/\[w\(\d\)\].*Invalid JSON in HTTP request/)
       end
 
-      context 'with GET request' do
-        it 'logs SSE connection with session_id from header' do
-          request = instance_double(Rack::Request,
-            post?: false,
-            get?: true,
-            env: { 'HTTP_MCP_SESSION_ID' => 'abc-123', 'QUERY_STRING' => '' }
-          )
+      it 'logs GET SSE connection with session_id from header' do
+        request = instance_double(Rack::Request,
+          post?: false, get?: true,
+          env: { 'HTTP_MCP_SESSION_ID' => 'abc-123', 'QUERY_STRING' => '' }
+        )
 
-          server_with_logger.send(:log_http_request, request)
+        server.send(:log_http_request, request)
 
-          log_content = File.read(log_file.path)
-          parsed_log = JSON.parse(log_content.lines.first)
-          expect(parsed_log['level']).to eq('INFO')
-          expect(parsed_log['message']).to eq('SSE connection request')
-          expect(parsed_log['context']['session_id']).to eq('abc-123')
-        end
-
-        it 'logs SSE connection with session_id from query string' do
-          request = instance_double(Rack::Request,
-            post?: false,
-            get?: true,
-            env: { 'QUERY_STRING' => 'sessionId=xyz-789' }
-          )
-
-          server_with_logger.send(:log_http_request, request)
-
-          log_content = File.read(log_file.path)
-          parsed_log = JSON.parse(log_content.lines.first)
-          expect(parsed_log['context']['session_id']).to eq('xyz-789')
-        end
+        content = File.read(log_file)
+        expect(content).to include('SSE connection request')
+        expect(content).to include('abc-123')
       end
 
-      context 'with no logger' do
-        it 'returns nil immediately' do
-          request = instance_double(Rack::Request)
-          expect(server_without_logger.send(:log_http_request, request)).to be_nil
-        end
+      it 'logs GET SSE connection with session_id from query string' do
+        request = instance_double(Rack::Request,
+          post?: false, get?: true,
+          env: { 'QUERY_STRING' => 'sessionId=xyz-789' }
+        )
+
+        server.send(:log_http_request, request)
+
+        expect(File.read(log_file)).to include('xyz-789')
       end
 
-      context 'with non-POST/GET request' do
-        it 'does not log anything' do
-          request = instance_double(Rack::Request, post?: false, get?: false)
-
-          server_with_logger.send(:log_http_request, request)
-
-          expect(File.read(log_file.path)).to be_empty
-        end
+      it 'does not log non-POST/GET requests' do
+        request = instance_double(Rack::Request, post?: false, get?: false)
+        server.send(:log_http_request, request)
+        expect(File.read(log_file)).to be_empty
       end
     end
 
     describe '#log_http_response' do
-      context 'with POST response containing error' do
-        it 'logs the error message and code' do
-          request = instance_double(Rack::Request, post?: true, get?: false)
-          response_body = { 'error' => { 'message' => 'Method not found', 'code' => -32601 } }.to_json
-          response = [400, {}, [response_body]]
+      it 'logs POST response errors with [e] severity' do
+        request = instance_double(Rack::Request, post?: true, get?: false)
+        response_body = { 'error' => { 'message' => 'Method not found', 'code' => -32601 } }.to_json
 
-          server_with_logger.send(:log_http_response, request, response)
+        server.send(:log_http_response, request, [400, {}, [response_body]])
 
-          log_content = File.read(log_file.path)
-          parsed_log = JSON.parse(log_content.lines.first)
-          expect(parsed_log['level']).to eq('ERROR')
-          expect(parsed_log['message']).to eq('HTTP Response error: Method not found')
-          expect(parsed_log['context']['error_code']).to eq(-32601)
-        end
+        content = File.read(log_file)
+        expect(content).to match(/\[e\(\d\)\]/)
+        expect(content).to include('HTTP Response error: Method not found')
+        expect(content).to include('-32601')
       end
 
-      context 'with POST response containing accepted (SSE)' do
-        it 'logs SSE stream response' do
-          request = instance_double(Rack::Request, post?: true, get?: false)
-          response_body = { 'accepted' => true }.to_json
-          response = [202, {}, [response_body]]
-
-          server_with_logger.send(:log_http_response, request, response)
-
-          log_content = File.read(log_file.path)
-          parsed_log = JSON.parse(log_content.lines.first)
-          expect(parsed_log['level']).to eq('INFO')
-          expect(parsed_log['message']).to eq('Response sent via SSE stream')
-        end
+      it 'logs SSE accepted response' do
+        request = instance_double(Rack::Request, post?: true, get?: false)
+        server.send(:log_http_response, request, [202, {}, [{ 'accepted' => true }.to_json]])
+        expect(File.read(log_file)).to include('Response sent via SSE stream')
       end
 
-      context 'with POST response containing success' do
-        it 'logs success with id and session_id' do
-          request = instance_double(Rack::Request, post?: true, get?: false)
-          response_body = { 'id' => 42, 'result' => {} }.to_json
-          headers = { 'Mcp-Session-Id' => 'sess-456' }
-          response = [200, headers, [response_body]]
+      it 'logs successful POST response with id and session' do
+        request = instance_double(Rack::Request, post?: true, get?: false)
+        server.send(:log_http_response, request,
+          [200, { 'Mcp-Session-Id' => 'sess-456' }, [{ 'id' => 42, 'result' => {} }.to_json]])
 
-          server_with_logger.send(:log_http_response, request, response)
-
-          log_content = File.read(log_file.path)
-          parsed_log = JSON.parse(log_content.lines.first)
-          expect(parsed_log['level']).to eq('INFO')
-          expect(parsed_log['message']).to eq('HTTP Response: success (id: 42)')
-          expect(parsed_log['context']['id']).to eq(42)
-          expect(parsed_log['context']['session_id']).to eq('sess-456')
-        end
+        content = File.read(log_file)
+        expect(content).to include('HTTP Response: success (id: 42)')
+        expect(content).to include('sess-456')
       end
 
-      context 'with POST response containing invalid JSON' do
-        it 'logs a warning' do
-          request = instance_double(Rack::Request, post?: true, get?: false)
-          response = [200, {}, ['not json{{']]
-
-          server_with_logger.send(:log_http_response, request, response)
-
-          log_content = File.read(log_file.path)
-          parsed_log = JSON.parse(log_content.lines.first)
-          expect(parsed_log['level']).to eq('WARN')
-          expect(parsed_log['message']).to eq('Invalid JSON in HTTP response')
-        end
+      it 'logs a warning for invalid JSON in POST response' do
+        request = instance_double(Rack::Request, post?: true, get?: false)
+        server.send(:log_http_response, request, [200, {}, ['not json{{']])
+        expect(File.read(log_file)).to match(/\[w\(\d\)\].*Invalid JSON in HTTP response/)
       end
 
-      context 'with GET response and 200 status' do
-        it 'logs SSE stream established' do
-          request = instance_double(Rack::Request, post?: false, get?: true)
-          response = [200, {}, []]
-
-          server_with_logger.send(:log_http_response, request, response)
-
-          log_content = File.read(log_file.path)
-          parsed_log = JSON.parse(log_content.lines.first)
-          expect(parsed_log['level']).to eq('INFO')
-          expect(parsed_log['message']).to eq('SSE stream established')
-        end
+      it 'logs SSE stream established for 200 GET' do
+        request = instance_double(Rack::Request, post?: false, get?: true)
+        server.send(:log_http_response, request, [200, {}, []])
+        expect(File.read(log_file)).to include('SSE stream established')
       end
 
-      context 'with empty body on POST' do
-        it 'does not log response details' do
-          request = instance_double(Rack::Request, post?: true, get?: false)
-          response = [200, {}, []]
-
-          server_with_logger.send(:log_http_response, request, response)
-
-          expect(File.read(log_file.path)).to be_empty
-        end
+      it 'does not log anything for empty POST body' do
+        request = instance_double(Rack::Request, post?: true, get?: false)
+        server.send(:log_http_response, request, [200, {}, []])
+        expect(File.read(log_file)).to be_empty
       end
 
-      context 'with non-array body' do
-        it 'does not log response details' do
-          request = instance_double(Rack::Request, post?: true, get?: false)
-          response = [200, {}, 'string body']
-
-          server_with_logger.send(:log_http_response, request, response)
-
-          expect(File.read(log_file.path)).to be_empty
-        end
-      end
-
-      context 'with no logger' do
-        it 'returns nil immediately' do
-          request = instance_double(Rack::Request)
-          response = [200, {}, []]
-          expect(server_without_logger.send(:log_http_response, request, response)).to be_nil
-        end
+      it 'does not log anything for non-array body' do
+        request = instance_double(Rack::Request, post?: true, get?: false)
+        server.send(:log_http_response, request, [200, {}, 'string body'])
+        expect(File.read(log_file)).to be_empty
       end
     end
   end

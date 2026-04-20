@@ -27,12 +27,6 @@ RSpec.describe Msf::MCP::RpcManager do
       expect(manager).to be_a(described_class)
     end
 
-    it 'accepts an optional logger' do
-      logger = instance_double(Msf::MCP::Logging::Logger)
-      manager = described_class.new(config: default_config, output: output, logger: logger)
-      expect(manager).to be_a(described_class)
-    end
-
     it 'is not managing an RPC server initially' do
       manager = described_class.new(config: default_config, output: output)
       expect(manager.rpc_managed?).to be false
@@ -536,8 +530,18 @@ RSpec.describe Msf::MCP::RpcManager do
   end
 
   describe 'logging' do
-    let(:logger) { instance_double(Msf::MCP::Logging::Logger) }
-    let(:manager) { described_class.new(config: default_config, output: output, logger: logger) }
+    let(:log_file) { Tempfile.new('rpc_manager_log').tap(&:close).path }
+    let(:manager) { described_class.new(config: default_config, output: output) }
+
+    before do
+      deregister_log_source(Msf::MCP::LOG_SOURCE) if log_source_registered?(Msf::MCP::LOG_SOURCE)
+      register_log_source(Msf::MCP::LOG_SOURCE, Rex::Logging::Sinks::Flatfile.new(log_file), Rex::Logging::LEV_1)
+    end
+
+    after do
+      deregister_log_source(Msf::MCP::LOG_SOURCE) if log_source_registered?(Msf::MCP::LOG_SOURCE)
+      File.delete(log_file) if File.exist?(log_file)
+    end
 
     context 'when starting RPC server' do
       before do
@@ -546,11 +550,8 @@ RSpec.describe Msf::MCP::RpcManager do
       end
 
       it 'logs the startup event' do
-        expect(logger).to receive(:log).with(
-          hash_including(level: 'INFO', message: match(/Starting.*RPC/i))
-        )
-
         manager.start_rpc_server
+        expect(File.read(log_file)).to match(/Starting.*RPC/i)
       end
     end
 
@@ -563,11 +564,8 @@ RSpec.describe Msf::MCP::RpcManager do
       end
 
       it 'logs the shutdown event' do
-        expect(logger).to receive(:log).with(
-          hash_including(level: 'INFO', message: match(/Stopping.*RPC/i))
-        )
-
         manager.stop_rpc_server
+        expect(File.read(log_file)).to match(/Stopping.*RPC/i)
       end
     end
 
@@ -577,11 +575,8 @@ RSpec.describe Msf::MCP::RpcManager do
         allow(TCPSocket).to receive(:new).and_return(tcp_socket)
         allow(tcp_socket).to receive(:close)
 
-        expect(logger).to receive(:log).with(
-          hash_including(level: 'DEBUG')
-        )
-
         manager.rpc_available?
+        expect(File.read(log_file)).to include('RPC server is available')
       end
     end
   end
@@ -731,15 +726,18 @@ RSpec.describe Msf::MCP::RpcManager do
       expect(output.string).to include('Generated random credentials')
     end
 
-    it 'logs the event when logger is present' do
-      logger = instance_double(Msf::MCP::Logging::Logger)
-      manager_with_logger = described_class.new(config: config, output: output, logger: logger)
+    it 'logs the event via Rex' do
+      log_file = Tempfile.new('creds_log').tap(&:close).path
+      deregister_log_source(Msf::MCP::LOG_SOURCE) if log_source_registered?(Msf::MCP::LOG_SOURCE)
+      register_log_source(Msf::MCP::LOG_SOURCE, Rex::Logging::Sinks::Flatfile.new(log_file), Rex::Logging::LEV_0)
 
-      expect(logger).to receive(:log).with(
-        hash_including(level: 'INFO', message: match(/Generated random credentials/))
-      )
+      manager.send(:generate_random_credentials)
 
-      manager_with_logger.send(:generate_random_credentials)
+      content = File.read(log_file)
+      expect(content).to match(/Generated random credentials/i)
+
+      deregister_log_source(Msf::MCP::LOG_SOURCE)
+      File.delete(log_file)
     end
   end
 

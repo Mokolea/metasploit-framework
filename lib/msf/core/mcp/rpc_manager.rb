@@ -18,11 +18,9 @@ module Msf::MCP
 
     # @param config [Hash] Application configuration hash
     # @param output [IO] Output stream for status messages
-    # @param logger [Msf::MCP::Logging::Logger, nil] Optional logger
-    def initialize(config:, output:, logger: nil)
+    def initialize(config:, output:)
       @config = config
       @output = output
-      @logger = logger
       @rpc_pid = nil
       @rpc_managed = false
     end
@@ -43,7 +41,7 @@ module Msf::MCP
 
       socket = TCPSocket.new(host, port)
       socket.close
-      log(level: 'DEBUG', message: "RPC server is available at #{host}:#{port}")
+      dlog("RPC server is available at #{Rex::Socket.to_authority(host, port)}", LOG_SOURCE, Rex::Logging::LEV_0)
       true
     rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH, Errno::ENETUNREACH,
            Errno::ETIMEDOUT, SocketError
@@ -80,7 +78,7 @@ module Msf::MCP
       end
 
       @output.puts 'Starting Metasploit RPC server...'
-      log(level: 'INFO', message: 'Starting Metasploit RPC server')
+      ilog('Starting Metasploit RPC server', LOG_SOURCE, Rex::Logging::LEV_0)
 
       unless File.executable?(MSFRPCD_PATH)
         raise Msf::MCP::Metasploit::RpcStartupError,
@@ -135,7 +133,7 @@ module Msf::MCP
       return unless @rpc_managed
 
       @output.puts 'Stopping managed RPC server...'
-      log(level: 'INFO', message: "Stopping managed RPC server (PID: #{@rpc_pid})")
+      ilog("Stopping managed RPC server (PID: #{@rpc_pid})", LOG_SOURCE, Rex::Logging::LEV_0)
 
       begin
         Process.kill('TERM', @rpc_pid)
@@ -228,7 +226,7 @@ module Msf::MCP
       @config[:msf_api][:user] = SecureRandom.hex(8)
       @config[:msf_api][:password] = SecureRandom.hex(16)
       @output.puts 'Generated random credentials for auto-started RPC server'
-      log(level: 'INFO', message: 'Generated random credentials for auto-started RPC server')
+      ilog('Generated random credentials for auto-started RPC server', LOG_SOURCE, Rex::Logging::LEV_0)
     end
 
     # Check if the managed child process is still alive.
@@ -241,8 +239,7 @@ module Msf::MCP
 
       @rpc_pid = nil
       @rpc_managed = false
-      raise Msf::MCP::Metasploit::RpcStartupError,
-            'RPC server process exited unexpectedly'
+      raise Msf::MCP::Metasploit::RpcStartupError, 'RPC server process exited unexpectedly'
     end
 
     # Wait for the child process to exit after SIGTERM, escalating to
@@ -258,14 +255,6 @@ module Msf::MCP
       # Process did not exit; escalate to SIGKILL
       Process.kill('KILL', @rpc_pid)
       Process.waitpid(@rpc_pid, 0)
-    end
-
-    # Log a message if a logger is available.
-    #
-    # @param level [String] Log level
-    # @param message [String] Log message
-    def log(level:, message:)
-      @logger&.log(level: level, message: message)
     end
   end
 end

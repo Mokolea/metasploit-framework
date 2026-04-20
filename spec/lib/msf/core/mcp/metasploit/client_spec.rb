@@ -13,8 +13,7 @@ RSpec.describe Msf::MCP::Metasploit::Client do
         port: 8081,
         ssl: true,
         endpoint: '/api/v1/json-rpc',
-        token: 'test_token',
-        logger: nil
+        token: 'test_token'
       ).and_return(jsonrpc_client)
 
       client = described_class.new(
@@ -36,8 +35,7 @@ RSpec.describe Msf::MCP::Metasploit::Client do
         host: 'localhost',
         port: 55553,
         ssl: true,
-        endpoint: '/api/',
-        logger: nil
+        endpoint: '/api/'
       ).and_return(messagepack_client)
 
       client = described_class.new(
@@ -65,8 +63,7 @@ RSpec.describe Msf::MCP::Metasploit::Client do
         host: 'localhost',
         port: 55553,
         endpoint: Msf::MCP::Metasploit::MessagePackClient::DEFAULT_ENDPOINT,
-        ssl: true,
-        logger: nil
+        ssl: true
       )
 
       described_class.new(api_type: 'messagepack', host: 'localhost', port: 55553)
@@ -78,8 +75,7 @@ RSpec.describe Msf::MCP::Metasploit::Client do
         port: 8081,
         endpoint: Msf::MCP::Metasploit::JsonRpcClient::DEFAULT_ENDPOINT,
         ssl: true,
-        token: 'tok',
-        logger: nil
+        token: 'tok'
       )
 
       described_class.new(api_type: 'json-rpc', host: 'localhost', port: 8081, token: 'tok')
@@ -90,8 +86,7 @@ RSpec.describe Msf::MCP::Metasploit::Client do
         host: 'localhost',
         port: 55553,
         endpoint: '/custom/api/',
-        ssl: false,
-        logger: nil
+        ssl: false
       )
 
       described_class.new(api_type: 'messagepack', host: 'localhost', port: 55553, endpoint: '/custom/api/', ssl: false)
@@ -103,8 +98,7 @@ RSpec.describe Msf::MCP::Metasploit::Client do
         port: 9090,
         endpoint: '/custom/jsonrpc',
         ssl: false,
-        token: 'my_token',
-        logger: nil
+        token: 'my_token'
       )
 
       described_class.new(api_type: 'json-rpc', host: 'remote', port: 9090, endpoint: '/custom/jsonrpc', ssl: false, token: 'my_token')
@@ -122,24 +116,6 @@ RSpec.describe Msf::MCP::Metasploit::Client do
       expect {
         described_class.new(api_type: 'grpc', host: 'localhost', port: 8081)
       }.to raise_error(Msf::MCP::Error, 'Invalid API type: grpc')
-    end
-
-    it 'passes logger to MessagePackClient' do
-      logger = double('logger')
-      expect(Msf::MCP::Metasploit::MessagePackClient).to receive(:new).with(
-        hash_including(logger: logger)
-      )
-
-      described_class.new(api_type: 'messagepack', host: 'localhost', port: 55553, logger: logger)
-    end
-
-    it 'passes logger to JsonRpcClient' do
-      logger = double('logger')
-      expect(Msf::MCP::Metasploit::JsonRpcClient).to receive(:new).with(
-        hash_including(logger: logger)
-      )
-
-      described_class.new(api_type: 'json-rpc', host: 'localhost', port: 8081, token: 'tok', logger: logger)
     end
   end
 

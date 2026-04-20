@@ -1,9 +1,15 @@
 # frozen_string_literal: true
 
+require 'rex/logging'
+require 'rex/logging/log_sink'
+require 'rex/logging/sinks/flatfile'
+require 'rex/logging/sinks/stderr'
+
 # Main entry point for MSF MCP Server
 module Msf
   module MCP
     VERSION = '0.1.0'
+    LOG_SOURCE = 'msfmcp'
   end
 end
 
@@ -25,8 +31,8 @@ require_relative 'mcp/metasploit/jsonrpc_client'
 require_relative 'mcp/metasploit/client'
 require_relative 'mcp/metasploit/response_transformer'
 
-# Logging Layer
-require_relative 'mcp/logging/logger'
+# Logging Layer — sanitizing sink only; the Logger wrapper has been removed
+require_relative 'mcp/logging/sinks/sanitizing'
 
 # MCP SDK
 require 'mcp'
