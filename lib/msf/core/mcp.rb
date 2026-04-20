@@ -1,15 +1,21 @@
 # frozen_string_literal: true
 
 require 'rex/logging'
+require 'rex/socket'
 require 'rex/logging/log_sink'
+require 'rex/logging/sinks/stream'
 require 'rex/logging/sinks/flatfile'
 require 'rex/logging/sinks/stderr'
+
+# Make Rex::Logging constants (LOG_ERROR, LOG_INFO, etc.) and the Kernel-level
+# logging stubs (ilog, elog, dlog, wlog) available without a full `require 'rex'`.
+include Rex::Logging
 
 # Main entry point for MSF MCP Server
 module Msf
   module MCP
     VERSION = '0.1.0'
-    LOG_SOURCE = 'msfmcp'
+    LOG_SOURCE = 'mcp'
   end
 end
 
