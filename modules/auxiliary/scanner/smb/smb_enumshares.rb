@@ -311,7 +311,7 @@ class MetasploitModule < Msf::Auxiliary
           connect(versions: [1, 2, 3])
         end
         smb_login
-        break unless enum_shares(ip).empty?
+        break unless enum_shares(ip)&.empty?
       rescue ::Interrupt
         raise $ERROR_INFO
       rescue Errno::ECONNRESET => e
