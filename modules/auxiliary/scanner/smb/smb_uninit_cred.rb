@@ -127,6 +127,9 @@ class MetasploitModule < Msf::Auxiliary
            ::Rex::Proto::SMB::Exceptions::InvalidWordCount,
            ::Rex::Proto::SMB::Exceptions::NoReply => e
       elog(e)
+    rescue ::Rex::Proto::DCERPC::Exceptions::Fault => e
+      elog(e)
+      return false
     rescue ::Exception => e
       if e.to_s =~ /execution expired/i
         # So what happens here is that when you trigger the buggy code path, you hit this:
