@@ -196,7 +196,9 @@ class MetasploitModule < Msf::Auxiliary
     results_table = format_results(results)
     results_table.rows = results_table.rows.uniq # Remove potentially duplicate entries from port 139 & 445
 
-    print_line
-    print_line results_table.to_s
+    unless results_table.rows.empty?
+      print_line
+      print_line results_table.to_s
+    end
   end
 end
