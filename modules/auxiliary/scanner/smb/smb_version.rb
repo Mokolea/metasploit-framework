@@ -295,9 +295,11 @@ class MetasploitModule < Msf::Auxiliary
         if info[:os_name] && info[:os_name] != 'Unknown'
           smb_desc = smb_description(info)
           os_desc = "Host is running #{info[:os_name]}"
+          smb1_desc = smb1_fingerprint['native_lm'] ? "; #{smb1_fingerprint['native_lm']}" : ""
 
           lines << { type: :status, message: smb_desc }
           lines << { type: :good, message: "  #{os_desc}" }
+          lines << { type: :status, message: "  #{smb1_fingerprint['native_lm']}", verbose: true } if smb1_fingerprint['native_lm']
 
           unless info[:signing_required]
             report_vuln({
@@ -318,7 +320,7 @@ class MetasploitModule < Msf::Auxiliary
             port: rport,
             proto: 'tcp',
             name: 'smb',
-            info: "#{smb_desc}; #{os_desc}"
+            info: "#{smb_desc}; #{os_desc}#{smb1_desc}"
           )
 
           # Report a fingerprint.match hash for name, domain, and language
