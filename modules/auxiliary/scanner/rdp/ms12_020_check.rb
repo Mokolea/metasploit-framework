@@ -176,7 +176,7 @@ class MetasploitModule < Msf::Auxiliary
   def check_host(ip)
     # The check command will call this method instead of run_host
 
-    status = Exploit::CheckCode::Unknown
+    status = Exploit::CheckCode::Unknown('Unable to determine MS12-020 vulnerability status')
 
     begin
       connect

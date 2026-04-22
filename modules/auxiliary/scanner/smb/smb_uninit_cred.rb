@@ -213,26 +213,26 @@ class MetasploitModule < Msf::Auxiliary
 
       if samba_info !~ /^samba/i
         vprint_status("Target isn't Samba, no check will run.")
-        return Exploit::CheckCode::Safe
+        return Exploit::CheckCode::Safe('Target is not running Samba')
       end
 
       if datastore['PASSIVE']
         if maybe_vulnerable?(samba_info)
           flag_vuln_host(ip, samba_info)
-          return Exploit::CheckCode::Appears
+          return Exploit::CheckCode::Appears('Samba version appears to be vulnerable based on version check')
         end
       else
         # Explicit: Actually triggers the bug
         if is_vulnerable?(ip)
           flag_vuln_host(ip, samba_info)
-          return Exploit::CheckCode::Vulnerable
+          return Exploit::CheckCode::Vulnerable('Samba uninitialized credential vulnerability confirmed')
         end
       end
     end
 
-    return Exploit::CheckCode::Detected if samba_info =~ /^samba/i
+    return Exploit::CheckCode::Detected('Samba detected but vulnerability could not be confirmed') if samba_info =~ /^samba/i
 
-    Exploit::CheckCode::Safe
+    Exploit::CheckCode::Safe('Target does not appear to be running Samba')
   end
 
   # Reports to the database about a possible vulnerable host

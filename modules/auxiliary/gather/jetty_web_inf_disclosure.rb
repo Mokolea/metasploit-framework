@@ -78,7 +78,7 @@ class MetasploitModule < Msf::Auxiliary
       return Exploit::CheckCode::Appears("Jetty #{version} vulnerable to CVE-2021-34429")
     end
 
-    Exploit::CheckCode::Safe('Server not vulnerable')
+    Exploit::CheckCode::Safe("Jetty #{version} is not vulnerable")
   end
 
   def pick_payload

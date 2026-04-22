@@ -93,16 +93,16 @@ class MetasploitModule < Msf::Auxiliary
   end
 
   def check
-    return Exploit::CheckCode::Unknown unless get_version
+    return Exploit::CheckCode::Unknown('Failed to retrieve CouchDB version') unless get_version
 
     version = Rex::Version.new(@version)
-    return Exploit::CheckCode::Unknown if version.version.empty?
+    return Exploit::CheckCode::Unknown('CouchDB version string is empty') if version.version.empty?
 
     vprint_good("#{peer} - Found CouchDB version #{version}")
 
-    return Exploit::CheckCode::Appears if version < Rex::Version.new('1.7.0') || version.between?(Rex::Version.new('2.0.0'), Rex::Version.new('2.1.0'))
+    return Exploit::CheckCode::Appears("CouchDB version #{version} is in the vulnerable range") if version < Rex::Version.new('1.7.0') || version.between?(Rex::Version.new('2.0.0'), Rex::Version.new('2.1.0'))
 
-    Exploit::CheckCode::Safe
+    Exploit::CheckCode::Safe('CouchDB version is not in the vulnerable range')
   end
 
   def get_dbs(auth)

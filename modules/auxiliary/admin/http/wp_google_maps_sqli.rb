@@ -60,7 +60,7 @@ class MetasploitModule < Msf::Auxiliary
     mynum = Rex::Text.rand_text_numeric(8..20).to_s
     body = send_sql_request(mynum)
     return Exploit::CheckCode::Unknown('No response from target') if body.nil?
-    return Exploit::CheckCode::Vulnerable if body.include?(mynum)
+    return Exploit::CheckCode::Vulnerable('SQL injection returned expected test value') if body.include?(mynum)
 
     Exploit::CheckCode::Unknown('SQL injection test did not return expected result')
   end

@@ -224,16 +224,16 @@ class MetasploitModule < Msf::Auxiliary
     if version.nil?
       return Exploit::CheckCode::Unknown('Failed to get build version')
     elsif vuln_version?(version) != true
-      return Exploit::CheckCode::Safe
+      return Exploit::CheckCode::Safe('Camaleon CMS version is not vulnerable')
     end
 
     res = get_file(datastore['FILEPATH'])
 
     if res.nil? || res == false || !res.is_a?(String)
       print_error('Failed to obtain file')
-      return Exploit::CheckCode::Appears
+      return Exploit::CheckCode::Appears('Camaleon CMS version appears vulnerable but file download failed')
     end
 
-    Exploit::CheckCode::Vulnerable
+    Exploit::CheckCode::Vulnerable('Successfully downloaded private file from Camaleon CMS')
   end
 end

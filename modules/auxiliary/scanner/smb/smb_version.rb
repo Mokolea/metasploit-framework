@@ -37,7 +37,11 @@ class MetasploitModule < Msf::Auxiliary
         negotiation is only present in version 3.1.1.
       },
       'Author' => ['hdm', 'Spencer McIntyre', 'Christophe De La Fuente'],
-      'License' => MSF_LICENSE
+      'License' => MSF_LICENSE,
+      'References' => [
+        ['URL', 'https://support.microsoft.com/en-us/help/161372/how-to-enable-smb-signing-in-windows-nt'],
+        ['URL', 'https://support.microsoft.com/en-us/help/887429/overview-of-server-message-block-signing'],
+      ]
     )
 
     register_options([
@@ -300,15 +304,15 @@ class MetasploitModule < Msf::Auxiliary
           lines << { type: :good, message: "  #{os_desc}" }
 
           unless info[:signing_required]
+            lines << { type: :status, message: '  SMB signing is not required' }
             report_vuln({
               host: ip,
               port: rport,
               proto: 'tcp',
               name: 'SMB Signing Is Not Required',
-              refs: [
-                SiteReference.new('URL', 'https://support.microsoft.com/en-us/help/161372/how-to-enable-smb-signing-in-windows-nt'),
-                SiteReference.new('URL', 'https://support.microsoft.com/en-us/help/887429/overview-of-server-message-block-signing'),
-              ]
+              info: 'Disabling SMB signing allows attackers to intercept and tamper with file-sharing traffic via man-in-the-middle attacks',
+              refs: self.references,
+              check_code: Msf::Exploit::CheckCode.Appears('SMB signing is not required')
             })
           end
 
