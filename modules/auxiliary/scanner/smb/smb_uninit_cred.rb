@@ -210,6 +210,8 @@ class MetasploitModule < Msf::Auxiliary
     samba_info = ''
     smb_ports = [445, 139]
     smb_ports.each do |port|
+      # Update line prefix, as port changes
+      remove_instance_variable(:@print_prefix) if instance_variable_defined?(:@print_prefix)
       @smb_port = port
       samba_info = get_samba_info
       vprint_status("Samba version: #{samba_info}")
