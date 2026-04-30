@@ -38,8 +38,7 @@ module Msf::MCP
           disclosure_date: info['disclosuredate'],
           description: info['description'],
           license: info['license'],
-          # TODO: sanitize the filepath to remove local paths
-          filepath: info['filepath'],
+          filepath: info['filepath']&.sub(/^.*modules\//, 'modules/'), # Dont expose the install path
           architectures: info['arch'],
           platforms: info['platform'],
           authors: info['authors'],

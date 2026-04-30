@@ -393,6 +393,7 @@ RSpec.describe Msf::MCP::Config::Loader do
 
     context 'logging defaults' do
       let(:config_hash) { {} }
+      let(:default_log_file) { File.join(Msf::Config.log_directory, 'msfmcp.log') }
 
       it 'sets default enabled to false' do
         config = described_class.load_from_hash(config_hash)
@@ -404,9 +405,14 @@ RSpec.describe Msf::MCP::Config::Loader do
         expect(config[:logging][:level]).to eq('INFO')
       end
 
-      it 'sets default log_file to msfmcp.log' do
+      it 'sets default log_file to msfmcp.log in the default Msf log directory' do
         config = described_class.load_from_hash(config_hash)
-        expect(config[:logging][:log_file]).to eq('msfmcp.log')
+        expect(config[:logging][:log_file]).to eq(default_log_file)
+      end
+
+      it 'sets default sanitize to true' do
+        config = described_class.load_from_hash(config_hash)
+        expect(config[:logging][:sanitize]).to be true
       end
 
       context 'when logging is explicitly enabled' do
@@ -420,7 +426,26 @@ RSpec.describe Msf::MCP::Config::Loader do
         it 'still applies other defaults' do
           config = described_class.load_from_hash(config_hash)
           expect(config[:logging][:level]).to eq('INFO')
-          expect(config[:logging][:log_file]).to eq('msfmcp.log')
+          expect(config[:logging][:log_file]).to eq(default_log_file)
+          expect(config[:logging][:sanitize]).to be true
+        end
+      end
+
+      context 'when sanitize is explicitly set to false' do
+        let(:config_hash) { { logging: { sanitize: false } } }
+
+        it 'preserves explicit false value' do
+          config = described_class.load_from_hash(config_hash)
+          expect(config[:logging][:sanitize]).to be false
+        end
+      end
+
+      context 'when sanitize is explicitly set to true' do
+        let(:config_hash) { { logging: { sanitize: true } } }
+
+        it 'preserves explicit true value' do
+          config = described_class.load_from_hash(config_hash)
+          expect(config[:logging][:sanitize]).to be true
         end
       end
 
@@ -430,6 +455,11 @@ RSpec.describe Msf::MCP::Config::Loader do
         it 'applies default for enabled' do
           config = described_class.load_from_hash(config_hash)
           expect(config[:logging][:enabled]).to be false
+        end
+
+        it 'applies default for sanitize' do
+          config = described_class.load_from_hash(config_hash)
+          expect(config[:logging][:sanitize]).to be true
         end
 
         it 'preserves explicit values' do

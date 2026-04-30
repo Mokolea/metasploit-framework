@@ -43,16 +43,22 @@ RSpec.describe Msf::MCP::RpcManager do
 
     context 'when RPC server is listening' do
       it 'returns true' do
-        tcp_socket = instance_double(TCPSocket)
-        allow(TCPSocket).to receive(:new).with('localhost', 55553).and_return(tcp_socket)
+        tcp_socket = instance_double('Rex::Socket::Tcp')
+        allow(Rex::Socket::Tcp).to receive(:create).with(
+          'PeerHost' => 'localhost',
+          'PeerPort' => 55553
+        ).and_return(tcp_socket)
         allow(tcp_socket).to receive(:close)
 
         expect(manager.rpc_available?).to be true
       end
 
       it 'closes the probe connection' do
-        tcp_socket = instance_double(TCPSocket)
-        allow(TCPSocket).to receive(:new).with('localhost', 55553).and_return(tcp_socket)
+        tcp_socket = instance_double('Rex::Socket::Tcp')
+        allow(Rex::Socket::Tcp).to receive(:create).with(
+          'PeerHost' => 'localhost',
+          'PeerPort' => 55553
+        ).and_return(tcp_socket)
         expect(tcp_socket).to receive(:close)
 
         manager.rpc_available?
@@ -61,31 +67,31 @@ RSpec.describe Msf::MCP::RpcManager do
 
     context 'when RPC server is not listening' do
       it 'returns false on connection refused' do
-        allow(TCPSocket).to receive(:new).with('localhost', 55553).and_raise(Errno::ECONNREFUSED)
+        allow(Rex::Socket::Tcp).to receive(:create).and_raise(Rex::ConnectionError)
 
         expect(manager.rpc_available?).to be false
       end
 
       it 'returns false on host unreachable' do
-        allow(TCPSocket).to receive(:new).with('localhost', 55553).and_raise(Errno::EHOSTUNREACH)
+        allow(Rex::Socket::Tcp).to receive(:create).and_raise(Rex::ConnectionError)
 
         expect(manager.rpc_available?).to be false
       end
 
       it 'returns false on network unreachable' do
-        allow(TCPSocket).to receive(:new).with('localhost', 55553).and_raise(Errno::ENETUNREACH)
+        allow(Rex::Socket::Tcp).to receive(:create).and_raise(Rex::ConnectionError)
 
         expect(manager.rpc_available?).to be false
       end
 
       it 'returns false on socket error' do
-        allow(TCPSocket).to receive(:new).with('localhost', 55553).and_raise(SocketError, 'getaddrinfo: nodename nor servname provided')
+        allow(Rex::Socket::Tcp).to receive(:create).and_raise(Rex::ConnectionError)
 
         expect(manager.rpc_available?).to be false
       end
 
       it 'returns false on timeout' do
-        allow(TCPSocket).to receive(:new).with('localhost', 55553).and_raise(Errno::ETIMEDOUT)
+        allow(Rex::Socket::Tcp).to receive(:create).and_raise(Rex::ConnectionError)
 
         expect(manager.rpc_available?).to be false
       end
@@ -100,7 +106,10 @@ RSpec.describe Msf::MCP::RpcManager do
       let(:manager) { described_class.new(config: custom_config, output: output) }
 
       it 'probes the configured host and port' do
-        expect(TCPSocket).to receive(:new).with('192.0.2.1', 9999).and_raise(Errno::ECONNREFUSED)
+        expect(Rex::Socket::Tcp).to receive(:create).with(
+          'PeerHost' => '192.0.2.1',
+          'PeerPort' => 9999
+        ).and_raise(Rex::ConnectionError)
 
         manager.rpc_available?
       end
@@ -534,12 +543,20 @@ RSpec.describe Msf::MCP::RpcManager do
     let(:manager) { described_class.new(config: default_config, output: output) }
 
     before do
-      deregister_log_source(Msf::MCP::LOG_SOURCE) if log_source_registered?(Msf::MCP::LOG_SOURCE)
-      register_log_source(Msf::MCP::LOG_SOURCE, Rex::Logging::Sinks::Flatfile.new(log_file), Rex::Logging::LEV_1)
+      if log_source_registered?(Msf::MCP::LOG_SOURCE)
+        deregister_log_source(Msf::MCP::LOG_SOURCE)
+      end
+      register_log_source(
+        Msf::MCP::LOG_SOURCE,
+        Msf::MCP::Logging::Sinks::JsonFlatfile.new(log_file),
+        Rex::Logging::LEV_3
+      )
     end
 
     after do
-      deregister_log_source(Msf::MCP::LOG_SOURCE) if log_source_registered?(Msf::MCP::LOG_SOURCE)
+      if log_source_registered?(Msf::MCP::LOG_SOURCE)
+        deregister_log_source(Msf::MCP::LOG_SOURCE)
+      end
       File.delete(log_file) if File.exist?(log_file)
     end
 
@@ -571,8 +588,8 @@ RSpec.describe Msf::MCP::RpcManager do
 
     context 'when RPC availability check succeeds' do
       it 'logs at DEBUG level' do
-        tcp_socket = instance_double(TCPSocket)
-        allow(TCPSocket).to receive(:new).and_return(tcp_socket)
+        tcp_socket = instance_double('Rex::Socket::Tcp')
+        allow(Rex::Socket::Tcp).to receive(:create).and_return(tcp_socket)
         allow(tcp_socket).to receive(:close)
 
         manager.rpc_available?
@@ -624,7 +641,10 @@ RSpec.describe Msf::MCP::RpcManager do
       it 'uses the configured port for availability checks' do
         manager = described_class.new(config: custom_port_config, output: output)
 
-        expect(TCPSocket).to receive(:new).with('localhost', 44444).and_raise(Errno::ECONNREFUSED)
+        expect(Rex::Socket::Tcp).to receive(:create).with(
+          'PeerHost' => 'localhost',
+          'PeerPort' => 44444
+        ).and_raise(Rex::ConnectionError)
         manager.rpc_available?
       end
     end
@@ -693,6 +713,51 @@ RSpec.describe Msf::MCP::RpcManager do
     end
   end
 
+  describe '#token_provided?' do
+    context 'when token is present' do
+      it 'returns true' do
+        config = default_config.dup
+        config[:msf_api] = config[:msf_api].merge(token: 'valid_token')
+        manager = described_class.new(config: config, output: output)
+        expect(manager.send(:token_provided?)).to be true
+      end
+    end
+
+    context 'when token is nil' do
+      it 'returns false' do
+        config = default_config.dup
+        config[:msf_api] = config[:msf_api].merge(token: nil)
+        manager = described_class.new(config: config, output: output)
+        expect(manager.send(:token_provided?)).to be false
+      end
+    end
+
+    context 'when token is empty string' do
+      it 'returns false' do
+        config = default_config.dup
+        config[:msf_api] = config[:msf_api].merge(token: '')
+        manager = described_class.new(config: config, output: output)
+        expect(manager.send(:token_provided?)).to be false
+      end
+    end
+
+    context 'when token is whitespace only' do
+      it 'returns false' do
+        config = default_config.dup
+        config[:msf_api] = config[:msf_api].merge(token: '   ')
+        manager = described_class.new(config: config, output: output)
+        expect(manager.send(:token_provided?)).to be false
+      end
+    end
+
+    context 'when token key is absent' do
+      it 'returns false' do
+        manager = described_class.new(config: default_config, output: output)
+        expect(manager.send(:token_provided?)).to be false
+      end
+    end
+  end
+
   describe '#generate_random_credentials' do
     let(:config) do
       c = default_config.dup
@@ -728,8 +793,14 @@ RSpec.describe Msf::MCP::RpcManager do
 
     it 'logs the event via Rex' do
       log_file = Tempfile.new('creds_log').tap(&:close).path
-      deregister_log_source(Msf::MCP::LOG_SOURCE) if log_source_registered?(Msf::MCP::LOG_SOURCE)
-      register_log_source(Msf::MCP::LOG_SOURCE, Rex::Logging::Sinks::Flatfile.new(log_file), Rex::Logging::LEV_0)
+      if log_source_registered?(Msf::MCP::LOG_SOURCE)
+        deregister_log_source(Msf::MCP::LOG_SOURCE)
+      end
+      register_log_source(
+        Msf::MCP::LOG_SOURCE,
+        Msf::MCP::Logging::Sinks::JsonFlatfile.new(log_file),
+        Rex::Logging::LEV_3
+      )
 
       manager.send(:generate_random_credentials)
 
@@ -798,6 +869,61 @@ RSpec.describe Msf::MCP::RpcManager do
       end
     end
 
+    context 'when RPC is already available with JSON-RPC type and token provided' do
+      let(:jsonrpc_config) do
+        config = default_config.dup
+        config[:msf_api] = config[:msf_api].merge(type: 'json-rpc', token: 'valid_token')
+        config
+      end
+      let(:manager) { described_class.new(config: jsonrpc_config, output: output) }
+
+      before do
+        allow(manager).to receive(:rpc_available?).and_return(true)
+      end
+
+      it 'does not raise' do
+        expect { manager.ensure_rpc_available }.not_to raise_error
+      end
+    end
+
+    context 'when RPC is already available with JSON-RPC type but no token' do
+      let(:jsonrpc_no_token_config) do
+        config = default_config.dup
+        config[:msf_api] = config[:msf_api].merge(type: 'json-rpc', token: nil)
+        config
+      end
+      let(:manager) { described_class.new(config: jsonrpc_no_token_config, output: output) }
+
+      before do
+        allow(manager).to receive(:rpc_available?).and_return(true)
+      end
+
+      it 'raises RpcStartupError about missing token' do
+        expect { manager.ensure_rpc_available }.to raise_error(
+          Msf::MCP::Metasploit::RpcStartupError, /already running.*no token/i
+        )
+      end
+    end
+
+    context 'when RPC is not available with JSON-RPC type' do
+      let(:jsonrpc_config) do
+        config = default_config.dup
+        config[:msf_api] = config[:msf_api].merge(type: 'json-rpc', token: 'valid_token')
+        config
+      end
+      let(:manager) { described_class.new(config: jsonrpc_config, output: output) }
+
+      before do
+        allow(manager).to receive(:rpc_available?).and_return(false)
+      end
+
+      it 'raises RpcStartupError about auto-start not supported' do
+        expect { manager.ensure_rpc_available }.to raise_error(
+          Msf::MCP::Metasploit::RpcStartupError, /auto-start is not supported for JSON-RPC/i
+        )
+      end
+    end
+
     context 'when RPC is not available and auto-start is enabled' do
       before do
         allow(manager).to receive(:rpc_available?).and_return(false, true)
@@ -862,19 +988,26 @@ RSpec.describe Msf::MCP::RpcManager do
     end
 
     context 'when RPC is not available and auto-start is disabled' do
+      let(:disabled_config) do
+        config = default_config.dup
+        config[:msf_api] = config[:msf_api].merge(auto_start_rpc: false)
+        config
+      end
+      let(:manager) { described_class.new(config: disabled_config, output: output) }
+
       before do
         allow(manager).to receive(:rpc_available?).and_return(false)
-        allow(manager).to receive(:auto_start_enabled?).and_return(false)
       end
 
       it 'does not start an RPC server' do
         expect(manager).not_to receive(:start_rpc_server)
-        manager.ensure_rpc_available
+        expect { manager.ensure_rpc_available }.to raise_error(Msf::MCP::Metasploit::RpcStartupError)
       end
 
-      it 'outputs a warning about the unavailable RPC server' do
-        manager.ensure_rpc_available
-        expect(output.string).to include('not running')
+      it 'raises RpcStartupError about the unavailable RPC server' do
+        expect { manager.ensure_rpc_available }.to raise_error(
+          Msf::MCP::Metasploit::RpcStartupError, /not running.*auto-start is disabled/i
+        )
       end
     end
 
@@ -892,12 +1025,13 @@ RSpec.describe Msf::MCP::RpcManager do
 
       it 'does not attempt to start the RPC server' do
         expect(manager).not_to receive(:start_rpc_server)
-        manager.ensure_rpc_available
+        expect { manager.ensure_rpc_available }.to raise_error(Msf::MCP::Metasploit::RpcStartupError)
       end
 
-      it 'outputs a message about the remote host' do
-        manager.ensure_rpc_available
-        expect(output.string).to match(/remote|cannot auto-start/i)
+      it 'raises RpcStartupError about the remote host' do
+        expect { manager.ensure_rpc_available }.to raise_error(
+          Msf::MCP::Metasploit::RpcStartupError, /not available.*192\.0\.2\.1/
+        )
       end
     end
   end

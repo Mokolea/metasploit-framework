@@ -27,5 +27,6 @@ rate_limit:
 # Logging (optional - defaults shown)
 logging:
   enabled: false
-  level: INFO  # DEBUG, INFO, WARN, ERROR, FATAL
-  log_file: msfmcp.log
+  level: INFO  # DEBUG, INFO, WARN, ERROR
+  log_file: ~/.msf4/logs/msfmcp.log
+  sanitize: true

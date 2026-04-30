@@ -47,8 +47,6 @@ module Msf::MCP
       start_mcp_server
     rescue Msf::MCP::Config::ValidationError, Msf::MCP::Config::ConfigurationError => e
       handle_configuration_error(e)
-    rescue Errno::ENOENT => e
-      handle_file_not_found_error(e)
     rescue Msf::MCP::Metasploit::ConnectionError => e
       handle_connection_error(e)
     rescue Msf::MCP::Metasploit::APIError => e
@@ -71,7 +69,10 @@ module Msf::MCP
     # @param signal [String] Signal name (e.g., 'INT', 'TERM')
     # @return [void]
     def shutdown(signal = 'INT')
-      ilog("Shutting down (SIG#{signal})", LOG_SOURCE, Rex::Logging::LEV_0)
+      ilog({
+        message: 'Shutting down',
+        context: { signal: "SIG#{signal}" }
+      }, LOG_SOURCE, LOG_INFO)
       @mcp_server&.shutdown
       @rpc_manager&.stop_rpc_server
       @output.puts "\nShutdown complete"
@@ -90,7 +91,7 @@ module Msf::MCP
           @options[:config_path] = File.expand_path(path)
         end
 
-        opts.on('--enable-logging', 'Enable file logging with sanitization') do
+        opts.on('--enable-logging', 'Enable file logging') do
           @options[:enable_logging_cli] = true
         end
 
@@ -130,7 +131,7 @@ module Msf::MCP
 
     # Register a Rex log source when logging is enabled.
     #
-    # Selects a Flatfile sink pointed at the configured log path and wraps it
+    # Selects a JsonFlatfile sink pointed at the configured log path and wraps it
     # with the sanitizing middleware unless sanitization has been explicitly
     # disabled in the config.
     #
@@ -140,13 +141,20 @@ module Msf::MCP
     def initialize_logger
       return unless @options[:enable_logging_cli] || @config.dig(:logging, :enabled)
 
-      log_file  = @options[:log_file_cli] || @config.dig(:logging, :log_file) || 'msfmcp.log'
-      log_level = (@config.dig(:logging, :level) || 'INFO').upcase
-      sanitize  = @config.dig(:logging, :sanitize) != false
-
-      threshold = log_level == 'DEBUG' ? Rex::Logging::LEV_1 : Rex::Logging::LEV_0
-      inner = Rex::Logging::Sinks::Flatfile.new(log_file)
-      sink  = sanitize ? Msf::MCP::Logging::Sinks::Sanitizing.new(inner) : inner
+      log_file = @options[:log_file_cli] || @config.dig(:logging, :log_file)
+      level = @config.dig(:logging, :level)
+      threshold = case @config.dig(:logging, :level).upcase
+                  when 'DEBUG'
+                    Rex::Logging::LEV_3
+                  when 'INFO'
+                    Rex::Logging::LEV_2
+                  when 'WARN'
+                    Rex::Logging::LEV_1
+                  when 'ERROR'
+                    Rex::Logging::LEV_0
+                  end
+      inner = Msf::MCP::Logging::Sinks::JsonFlatfile.new(log_file)
+      sink  = @config.dig(:logging, :sanitize) ? Msf::MCP::Logging::Sinks::Sanitizing.new(inner) : inner
 
       deregister_log_source(LOG_SOURCE) if log_source_registered?(LOG_SOURCE)
       register_log_source(LOG_SOURCE, sink, threshold)
@@ -280,44 +288,44 @@ module Msf::MCP
     # Error handlers
 
     def handle_configuration_error(error)
-      elog("Configuration validation failed", LOG_SOURCE, Rex::Logging::LEV_0, error: error)
       @output.puts "Configuration validation failed: #{error.message}"
       exit 1
     end
 
-    def handle_file_not_found_error(error)
-      elog("Configuration file not found", LOG_SOURCE, Rex::Logging::LEV_0, error: error)
-      @output.puts "Configuration file not found: #{@options[:config_path]}"
-      @output.puts "Create a configuration file or specify a valid path with --config"
-      exit 1
-    end
-
     def handle_connection_error(error)
-      elog("Connection error to #{@config[:msf_api][:host]}:#{@config[:msf_api][:port]}", LOG_SOURCE, Rex::Logging::LEV_0, error: error)
+      elog({
+        message: 'Connection error',
+        context: { host: @config[:msf_api][:host], port: @config[:msf_api][:port] },
+        exception: error
+      }, LOG_SOURCE, LOG_ERROR)
       @output.puts "Connection error to Metasploit RPC at #{@config[:msf_api][:host]}:#{@config[:msf_api][:port]} - #{error.message}"
       exit 1
     end
 
     def handle_api_error(error)
-      elog("Metasploit API error", LOG_SOURCE, Rex::Logging::LEV_0, error: error)
+      elog({ message: 'Metasploit API error', exception: error }, LOG_SOURCE, LOG_ERROR)
       @output.puts "Metasploit API error: #{error.message}"
       exit 1
     end
 
     def handle_authentication_error(error)
-      elog("Authentication error (username: #{@config[:msf_api][:user]})", LOG_SOURCE, Rex::Logging::LEV_0, error: error)
+      elog({
+        message: 'Authentication error',
+        context: { username: @config[:msf_api][:user].to_s },
+        exception: error
+      }, LOG_SOURCE, LOG_ERROR)
       @output.puts "Authentication error (username: #{@config[:msf_api][:user]}): #{error.message}"
       exit 1
     end
 
     def handle_rpc_startup_error(error)
-      elog("RPC startup error", LOG_SOURCE, Rex::Logging::LEV_0, error: error)
+      elog({ message: 'RPC startup error', exception: error }, LOG_SOURCE, LOG_ERROR)
       @output.puts "RPC startup error: #{error.message}"
       exit 1
     end
 
     def handle_fatal_error(error)
-      elog("Fatal error during startup", LOG_SOURCE, Rex::Logging::LEV_0, error: error)
+      elog({ message: 'Fatal error during startup', exception: error }, LOG_SOURCE, LOG_ERROR)
       @output.puts "Fatal error: #{error.message}"
       @output.puts error.backtrace.first(5).join("\n") if error.backtrace
       exit 1

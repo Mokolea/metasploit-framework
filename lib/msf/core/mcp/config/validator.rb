@@ -175,7 +175,7 @@ module Msf::MCP
         end
       end
 
-      VALID_LOG_LEVELS = %w[DEBUG INFO WARN ERROR FATAL].freeze
+      VALID_LOG_LEVELS = %w[DEBUG INFO WARN ERROR].freeze
 
       # Validate logging section fields
       def validate_logging(config, errors)
@@ -191,6 +191,10 @@ module Msf::MCP
 
         if logging.key?(:log_file) && logging[:log_file].to_s.strip.empty?
           errors[:'logging.log_file'] = "must be a non-empty string"
+        end
+
+        if logging.key?(:sanitize) && ![true, false].include?(logging[:sanitize])
+          errors[:'logging.sanitize'] = "must be boolean (true or false)"
         end
       end
     end

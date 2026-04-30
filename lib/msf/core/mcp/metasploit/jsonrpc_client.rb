@@ -52,13 +52,13 @@ module Msf::MCP
 
         @request_id += 1
 
-        # Build JSON-RPC 2.0 request
+        # Build JSON-RPC 2.0 request as a hash
         request_body = {
           jsonrpc: '2.0',
           method: method,
           params: args,
           id: @request_id
-        }.to_json
+        }
 
         # Send HTTP request
         response = send_request(request_body)
@@ -138,7 +138,7 @@ module Msf::MCP
       private
 
       # Send HTTP POST request with JSON-RPC payload
-      # @param request_body [String] JSON-RPC request
+      # @param request_body [Hash] JSON-RPC request body as a hash
       # @return [Hash] Parsed response
       # @raise [ConnectionError] If connection fails
       # @raise [AuthenticationError] If token is invalid
@@ -154,9 +154,12 @@ module Msf::MCP
         request = Net::HTTP::Post.new(@endpoint)
         request['Content-Type'] = 'application/json'
         request['Authorization'] = "Bearer #{@token}"
-        request.body = request_body
+        request.body = request_body.to_json
 
-        dlog("JSON-RPC request method=#{request.method} endpoint=#{@endpoint}", LOG_SOURCE, Rex::Logging::LEV_1)
+        dlog({
+          message: 'JSON-RPC request',
+          context: { method: request.method, endpoint: @endpoint, body: request_body }
+        }, LOG_SOURCE, LOG_DEBUG)
 
         # Send request and parse response
         begin
@@ -175,7 +178,10 @@ module Msf::MCP
                      raise ConnectionError, "HTTP #{response.code}: #{response.message}"
                    end
 
-          dlog("JSON-RPC response status=#{response.code}", LOG_SOURCE, Rex::Logging::LEV_1)
+          dlog({
+            message: 'JSON-RPC response',
+            context: { status: response.code, body: parsed }
+          }, LOG_SOURCE, LOG_DEBUG)
 
           parsed
         rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH => e

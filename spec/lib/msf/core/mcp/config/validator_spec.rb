@@ -889,7 +889,7 @@ RSpec.describe Msf::MCP::Config::Validator do
       end
 
       it 'accepts all valid log levels' do
-        %w[DEBUG INFO WARN ERROR FATAL].each do |level|
+        %w[DEBUG INFO WARN ERROR].each do |level|
           config = base_config.merge(logging: { level: level })
           expect(described_class.validate!(config)).to be true
         end
@@ -916,6 +916,30 @@ RSpec.describe Msf::MCP::Config::Validator do
         }.to raise_error(Msf::MCP::Config::ValidationError) do |error|
           expect(error.errors[:'logging.log_file']).to eq('must be a non-empty string')
         end
+      end
+
+      it 'accepts sanitize set to true' do
+        config = base_config.merge(logging: { sanitize: true })
+        expect(described_class.validate!(config)).to be true
+      end
+
+      it 'accepts sanitize set to false' do
+        config = base_config.merge(logging: { sanitize: false })
+        expect(described_class.validate!(config)).to be true
+      end
+
+      it 'raises ValidationError for non-boolean logging.sanitize' do
+        config = base_config.merge(logging: { sanitize: 'yes' })
+        expect {
+          described_class.validate!(config)
+        }.to raise_error(Msf::MCP::Config::ValidationError) do |error|
+          expect(error.errors[:'logging.sanitize']).to eq('must be boolean (true or false)')
+        end
+      end
+
+      it 'does not validate sanitize when key is absent' do
+        config = base_config.merge(logging: { enabled: true, level: 'INFO' })
+        expect(described_class.validate!(config)).to be true
       end
     end
   end

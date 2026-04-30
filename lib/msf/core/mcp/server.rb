@@ -30,9 +30,9 @@ module Msf::MCP
         rate_limiter: rate_limiter
       }
 
-      # Create MCP configuration with instrumentation callbacks
+      # Create MCP configuration with request lifecycle callbacks
       mcp_config = ::MCP::Configuration.new
-      mcp_config.instrumentation_callback = create_instrumentation_callback
+      mcp_config.around_request = create_around_request
       mcp_config.exception_reporter = create_exception_reporter
 
       # Initialize MCP server with all tools
@@ -92,13 +92,16 @@ module Msf::MCP
     #
     def start_stdio
       transport = ::MCP::Server::Transports::StdioTransport.new(@mcp_server)
-      @mcp_server.transport = transport
       transport.open
       @mcp_server
     end
 
     ##
     # Start HTTP transport (for web/network usage)
+    #
+    # The transport implements the Rack app interface (#call), so it is mounted
+    # directly. MCP-aware request/response logging is handled by the
+    # Middleware::RequestLogger middleware.
     #
     # @param host [String] Host address to bind to
     # @param port [Integer] Port to listen on
@@ -110,21 +113,12 @@ module Msf::MCP
       require 'rack/handler/puma'
 
       transport = ::MCP::Server::Transports::StreamableHTTPTransport.new(@mcp_server)
-      @mcp_server.transport = transport
 
-      # Create the Rack application following official MCP example
-      app = proc do |env|
-        request = Rack::Request.new(env)
-        log_http_request(request)
-        response = transport.handle_request(request)
-        log_http_response(request, response)
-        response
-      end
-
-      # Build the Rack application with middleware
+      # Build the Rack application with logging middleware.
+      # The transport itself is a Rack app (implements #call).
       rack_app = Rack::Builder.new do
-        use Rack::ShowExceptions
-        run app
+        use Msf::MCP::Middleware::RequestLogger
+        run transport
       end
 
       # Start Puma server using the handler appropriate for the Rack version.
@@ -146,80 +140,28 @@ module Msf::MCP
     end
 
     ##
-    # Log HTTP request details via Rex logging
+    # Create around_request callback for MCP SDK
     #
-    # @param request [Rack::Request] The HTTP request
+    # This callback wraps every JSON-RPC request handler, providing access to
+    # both the instrumentation data and the response result. It replaces the
+    # deprecated +instrumentation_callback+ which only fires after completion
+    # and does not expose the result.
     #
-    def log_http_request(request)
-      if request.post?
-        body = request.body.read
-        request.body.rewind
-        begin
-          parsed_body = JSON.parse(body)
-          ilog(
-            "HTTP Request: #{parsed_body['method']} (id: #{parsed_body['id']}) params=#{parsed_body['params'].inspect}",
-            LOG_SOURCE, Rex::Logging::LEV_0
-          )
-        rescue JSON::ParserError
-          wlog('Invalid JSON in HTTP request', LOG_SOURCE, Rex::Logging::LEV_0)
-        end
-      elsif request.get?
-        session_id = request.env['HTTP_MCP_SESSION_ID'] ||
-                     Rack::Utils.parse_query(request.env['QUERY_STRING'])['sessionId']
-        ilog("SSE connection request session_id=#{session_id.inspect}", LOG_SOURCE, Rex::Logging::LEV_0)
-      end
-    end
+    # The +data+ hash is populated by the SDK with:
+    # - :method — the JSON-RPC method name (e.g. "tools/call", "tools/list")
+    # - :tool_name, :prompt_name, :resource_uri — specific handler identifiers
+    # - :tool_arguments — arguments passed to a tool call
+    # - :client — client info hash (name, version)
+    # - :error — error type symbol (e.g. :tool_not_found, :internal_error)
+    # - :duration — added in the ensure block after this callback returns
+    #
+    # @return [Proc] Callback that wraps request execution and logs via Rex
+    #
+    def create_around_request
+      ->(data, &request_handler) do
+        result = request_handler.call
 
-    ##
-    # Log HTTP response details via Rex logging
-    #
-    # @param request [Rack::Request] The HTTP request
-    # @param response [Array] The Rack response [status, headers, body]
-    #
-    def log_http_response(request, response)
-      status, headers, body = response
-
-      if body.is_a?(Array) && !body.empty? && request.post?
-        begin
-          parsed_response = JSON.parse(body.first)
-          if parsed_response['error']
-            elog(
-              "HTTP Response error: #{parsed_response['error']['message']} (code: #{parsed_response['error']['code']})",
-              LOG_SOURCE, Rex::Logging::LEV_0
-            )
-          elsif parsed_response['accepted']
-            ilog('Response sent via SSE stream', LOG_SOURCE, Rex::Logging::LEV_0)
-          else
-            ilog(
-              "HTTP Response: success (id: #{parsed_response['id']}) session=#{headers['Mcp-Session-Id'].inspect}",
-              LOG_SOURCE, Rex::Logging::LEV_0
-            )
-          end
-        rescue JSON::ParserError
-          wlog('Invalid JSON in HTTP response', LOG_SOURCE, Rex::Logging::LEV_0)
-        end
-      elsif request.get? && status == 200
-        ilog('SSE stream established', LOG_SOURCE, Rex::Logging::LEV_0)
-      end
-    end
-
-    ##
-    # Create instrumentation callback for MCP SDK
-    #
-    # This callback receives information about:
-    # - Tool calls (with tool_name, duration)
-    # - Prompt calls (with prompt_name, duration)
-    # - Resource calls (with resource_uri, duration)
-    # - Errors (with error type, e.g., tool_not_found)
-    # - Any additional data from the MCP SDK
-    #
-    # @return [Proc] Callback that logs instrumentation data via Rex
-    #
-    def create_instrumentation_callback
-      ->(data) do
-        return unless data
-
-        # Build message based on instrumentation type
+        # Build message based on the type of request
         message = if data[:error]
                     "MCP Error: #{data[:error]}"
                   elsif data[:tool_name]
@@ -231,26 +173,30 @@ module Msf::MCP
                   elsif data[:method]
                     "Method call: #{data[:method]}"
                   else
-                    "MCP instrumentation"
+                    "MCP request"
                   end
 
-        # Add duration to message if available
-        message = message.dup
-        message << " (#{(data[:duration] * 1000).round(2)}ms)" if data[:duration]
-        message << " #{data.inspect}" unless data.empty?
-
-        if data[:error]
-          elog(message, LOG_SOURCE, Rex::Logging::LEV_0)
-        else
-          ilog(message, LOG_SOURCE, Rex::Logging::LEV_0)
+        context = data.dup
+        if result
+          message = "#{message} (ERROR)" if result[:isError]
+          context[:result] = result
         end
+
+        if data[:error] || result&.fetch(:isError, nil)
+          elog({ message: message, context: context }, LOG_SOURCE, LOG_ERROR)
+        else
+          ilog({ message: message, context: context }, LOG_SOURCE, LOG_INFO)
+        end
+
+        result
       end
     end
 
     ##
     # Create exception reporter callback for MCP SDK
     #
-    # This callback is invoked for any exception during request processing.
+    # This callback is invoked for any server exception during request processing,
+    # which are not tool execution errors.
     # It receives:
     # - exception: The Ruby exception object
     # - context: Hash with :request (JSON string) or :notification (method name string)
@@ -266,11 +212,15 @@ module Msf::MCP
 
         if context&.fetch(:request, nil)
           error_context[:type] = 'request'
-          if context[:request].is_a?(Hash)
-            error_context[:method] = context.dig(:request, :name) || 'unknown'
-            error_context[:arguments] = context.dig(:request, :arguments) || []
-          else
+          request = nil
+          begin
+            request = JSON.parse(context[:request])
+          rescue JSON::ParserError
+            # Not valid JSON, log raw data
             error_context[:raw_data] = context[:request].inspect
+          else
+            error_context[:method] = request['method'] if request['method']
+            error_context[:params] = request['params'] if request['params']
           end
         elsif context&.fetch(:notification, nil)
           error_context[:type] = 'notification'
@@ -281,11 +231,11 @@ module Msf::MCP
           error_context[:raw_data] = context.inspect
         end
 
-        msg = "Error during #{error_context[:type]} processing"
-        msg << " (#{error_context[:method]})" if error_context[:method] && !error_context[:method].empty?
-        msg << " #{error_context.inspect}"
-
-        elog(msg, LOG_SOURCE, Rex::Logging::LEV_0, error: exception)
+        elog({
+          message: "Error during #{error_context[:type]} processing#{error_context[:method] ? " (#{error_context[:method]})" : ''}",
+          exception: exception,
+          context: error_context
+        }, LOG_SOURCE, LOG_ERROR)
       end
     end
   end

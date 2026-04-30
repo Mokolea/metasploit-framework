@@ -55,12 +55,12 @@ RSpec.describe Msf::MCP::Metasploit::JsonRpcClient do
 
       it 'enables SSL on Net::HTTP client' do
         expect(http_mock).to receive(:use_ssl=).with(true)
-        client.send(:send_request, '{}')
+        client.send(:send_request, { jsonrpc: '2.0', method: 'test', id: 1 })
       end
 
       it 'sets verify_mode to VERIFY_NONE' do
         expect(http_mock).to receive(:verify_mode=).with(OpenSSL::SSL::VERIFY_NONE)
-        client.send(:send_request, '{}')
+        client.send(:send_request, { jsonrpc: '2.0', method: 'test', id: 1 })
       end
     end
 
@@ -69,12 +69,12 @@ RSpec.describe Msf::MCP::Metasploit::JsonRpcClient do
 
       it 'disables SSL on Net::HTTP client' do
         expect(http_mock).to receive(:use_ssl=).with(false)
-        client.send(:send_request, '{}')
+        client.send(:send_request, { jsonrpc: '2.0', method: 'test', id: 1 })
       end
 
       it 'does not set verify_mode' do
         expect(http_mock).not_to receive(:verify_mode=)
-        client.send(:send_request, '{}')
+        client.send(:send_request, { jsonrpc: '2.0', method: 'test', id: 1 })
       end
     end
 
@@ -84,7 +84,7 @@ RSpec.describe Msf::MCP::Metasploit::JsonRpcClient do
       it 'configures HTTPS connection' do
         expect(http_mock).to receive(:use_ssl=).with(true)
         expect(http_mock).to receive(:verify_mode=).with(OpenSSL::SSL::VERIFY_NONE)
-        client.send(:send_request, '{}')
+        client.send(:send_request, { jsonrpc: '2.0', method: 'test', id: 1 })
       end
     end
 
@@ -94,7 +94,7 @@ RSpec.describe Msf::MCP::Metasploit::JsonRpcClient do
       it 'uses SSL by default' do
         expect(http_mock).to receive(:use_ssl=).with(true)
         expect(http_mock).to receive(:verify_mode=).with(OpenSSL::SSL::VERIFY_NONE)
-        client.send(:send_request, '{}')
+        client.send(:send_request, { jsonrpc: '2.0', method: 'test', id: 1 })
       end
     end
   end
@@ -110,11 +110,10 @@ RSpec.describe Msf::MCP::Metasploit::JsonRpcClient do
 
     it 'sends JSON-RPC 2.0 request with correct structure' do
       expect(client).to receive(:send_request) do |body|
-        parsed = JSON.parse(body)
-        expect(parsed['jsonrpc']).to eq('2.0')
-        expect(parsed['method']).to eq('module.search')
-        expect(parsed['params']).to eq(['smb'])
-        expect(parsed['id']).to eq(1)
+        expect(body[:jsonrpc]).to eq('2.0')
+        expect(body[:method]).to eq('module.search')
+        expect(body[:params]).to eq(['smb'])
+        expect(body[:id]).to eq(1)
         { 'result' => {} }
       end
 
@@ -195,6 +194,17 @@ RSpec.describe Msf::MCP::Metasploit::JsonRpcClient do
         instance_double(Net::HTTPResponse, code: '200', body: '{"result": {}}')
       )
       expect { client.call_api('module.search', ['smb']) }.not_to raise_error
+    end
+
+    it 'calls dlog for request and response' do
+      allow(http_mock).to receive(:request).and_return(
+        instance_double(Net::HTTPResponse, code: '200', body: '{"result": {}}')
+      )
+
+      expect(client).to receive(:dlog).with(hash_including(message: 'JSON-RPC request'), anything, anything).ordered
+      expect(client).to receive(:dlog).with(hash_including(message: 'JSON-RPC response'), anything, anything).ordered
+
+      client.call_api('module.search', ['smb'])
     end
   end
 

@@ -48,51 +48,40 @@ module Msf::MCP
       #
       # @param config [Hash] Configuration hash to modify in place
       def self.apply_defaults(config)
-        # Ensure nested hashes exist
         config[:msf_api] ||= {}
         config[:mcp] ||= {}
+        config[:rate_limit] ||= {}
+        config[:logging] ||= {}
 
-        # Default MSF API type and host
         config[:msf_api][:type] ||= 'messagepack'
         config[:msf_api][:host] ||= 'localhost'
-
-        # Default port is 8081 for JSON-RPC or 55553 for MessagePack (and anything else)
         config[:msf_api][:port] ||= (config[:msf_api][:type] == 'json-rpc') ? 8081 : 55553
 
-        # Use SSL by default
-        config[:msf_api][:ssl] = true if !config[:msf_api].key?(:ssl)
+        config[:msf_api][:ssl] = config[:msf_api].fetch(:ssl, true)
+        config[:msf_api][:auto_start_rpc] = config[:msf_api].fetch(:auto_start_rpc, true)
 
-        # Auto-start RPC by default
-        config[:msf_api][:auto_start_rpc] = true unless config[:msf_api].key?(:auto_start_rpc)
-
-        # Default endpoint based on API type
         config[:msf_api][:endpoint] ||= case config[:msf_api][:type]
-                                         when 'json-rpc'
-                                           Msf::MCP::Metasploit::JsonRpcClient::DEFAULT_ENDPOINT
-                                         else
-                                           Msf::MCP::Metasploit::MessagePackClient::DEFAULT_ENDPOINT
-                                         end
+                                        when 'json-rpc'
+                                          Msf::MCP::Metasploit::JsonRpcClient::DEFAULT_ENDPOINT
+                                        else
+                                          Msf::MCP::Metasploit::MessagePackClient::DEFAULT_ENDPOINT
+                                        end
 
-        # Default transport
         config[:mcp][:transport] ||= 'stdio'
 
-        # Default MCP server network settings (for HTTP transport)
         if config[:mcp][:transport] == 'http'
           config[:mcp][:host] ||= 'localhost'
           config[:mcp][:port] ||= 3000
         end
 
-        # Default rate limit
-        config[:rate_limit] ||= {}
-        config[:rate_limit][:enabled] = true unless config[:rate_limit].key?(:enabled)
+        config[:rate_limit][:enabled] = config[:rate_limit].fetch(:enabled, true)
         config[:rate_limit][:requests_per_minute] ||= 60
         config[:rate_limit][:burst_size] ||= 10
 
-        # Default logging
-        config[:logging] ||= {}
-        config[:logging][:enabled] = false unless config[:logging].key?(:enabled)
+        config[:logging][:enabled] = config[:logging].fetch(:enabled, false)
         config[:logging][:level] ||= 'INFO'
-        config[:logging][:log_file] ||= 'msfmcp.log'
+        config[:logging][:log_file] ||= File.join(Msf::Config.log_directory, 'msfmcp.log')
+        config[:logging][:sanitize] = config[:logging].fetch(:sanitize, true)
       end
 
       # Apply environment variable overrides

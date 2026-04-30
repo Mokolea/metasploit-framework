@@ -24,7 +24,7 @@ module Msf::MCP
         @user = nil
         @password = nil
         @retry_count = 0
-        @max_retries = 1
+        @max_retries = 2
         @ssl = ssl
       end
 
@@ -63,29 +63,49 @@ module Msf::MCP
       def call_api(method, args = [])
         raise ArgumentError, "args must be an Array, got #{args.class}" unless args.is_a?(Array)
 
-        raise AuthenticationError, 'Not authenticated' unless @token
+        begin
+          raise AuthenticationError, 'Not authenticated' unless @token
 
-        # Build request array: [method, token, *args]
-        request_array = [method, @token, *args]
+          # Build request array: [method, token, *args]
+          request_array = [method, @token, *args]
 
-        # Send HTTP request
-        response = send_request(request_array)
-        @retry_count = 0  # Reset retry count on success
-        response
+          # Send HTTP request
+          send_request(request_array)
 
-      rescue AuthenticationError => e
-        # TODO: Log authentication error if needed
-        if @user && @password && @retry_count < @max_retries
+        rescue AuthenticationError => e
+          # It is not possible to reauthenticate if we don't have credentials stored
+          raise unless @user && @password
+          # If reauthentication succeeded but the token is still invalid, we should not retry indefinitely
+          raise unless @retry_count < @max_retries
+
           @retry_count += 1
           @token = nil
 
-          # Re-authenticate
-          authenticate(@user, @password)
+          begin
+            wlog({ message: "#{method}': #{e.message}. Attempting to re-authenticate (#{@retry_count}/#{@max_retries})" },
+                LOG_SOURCE, LOG_WARN)
+            authenticate(@user, @password)
+          rescue AuthenticationError => auth_e
+            wlog({ message: "Re-authentication failed: #{auth_e.message}" },
+                LOG_SOURCE, LOG_WARN)
+            if @retry_count < @max_retries
+              @retry_count += 1
+              @token = nil
+              retry
+            end
+            raise AuthenticationError, "Unable to authenticate after #{@retry_count} attempts: #{auth_e.message}"
+          end
 
           # Retry the original request with new token
           retry
         end
-        raise AuthenticationError, "Unable to authenticate after #{@retry_count} attempts: #{e.message}"
+
+      rescue Msf::MCP::Error => e
+        elog({ message: 'MessagePack API call error', context: { error: e.message } },
+            LOG_SOURCE, LOG_ERROR)
+        raise
+      ensure
+        @retry_count = 0
       end
 
       # Search for Metasploit modules
@@ -178,7 +198,10 @@ module Msf::MCP
         request['Content-Type'] = 'binary/message-pack'
         request.body = request_body
 
-        dlog("MessagePack request method=#{request.method} endpoint=#{@endpoint} body=#{sanitize_request_array(request_array).inspect}", LOG_SOURCE, Rex::Logging::LEV_1)
+        dlog({
+          message: 'MessagePack request',
+          context: { method: request.method, endpoint: @endpoint, body: sanitize_request_array(request_array) }
+        }, LOG_SOURCE, LOG_DEBUG)
 
         # Send request and parse response
         begin
@@ -199,7 +222,10 @@ module Msf::MCP
                      raise ConnectionError, "HTTP #{response.code}: #{response.message}"
                    end
 
-          dlog("MessagePack response status=#{response.code}", LOG_SOURCE, Rex::Logging::LEV_1)
+          dlog({
+            message: 'MessagePack response',
+            context: { status: response.code, body: parsed }
+          }, LOG_SOURCE, LOG_DEBUG)
 
           parsed
         rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH => e

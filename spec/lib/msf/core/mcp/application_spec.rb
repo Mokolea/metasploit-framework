@@ -124,7 +124,9 @@ RSpec.describe Msf::MCP::Application do
     let(:log_file) { Tempfile.new('app_test_log').tap(&:close).path }
 
     after do
-      deregister_log_source(Msf::MCP::LOG_SOURCE) if log_source_registered?(Msf::MCP::LOG_SOURCE)
+      if log_source_registered?(Msf::MCP::LOG_SOURCE)
+        deregister_log_source(Msf::MCP::LOG_SOURCE)
+      end
       File.delete(log_file) if File.exist?(log_file)
     end
 
@@ -139,7 +141,7 @@ RSpec.describe Msf::MCP::Application do
     it 'registers the Rex source when --enable-logging is set' do
       app = described_class.new(['--enable-logging', '--log-file', log_file], output: output)
       app.send(:parse_arguments)
-      app.instance_variable_set(:@config, { logging: { enabled: false, level: 'INFO' } })
+      app.instance_variable_set(:@config, { logging: { enabled: false, level: 'INFO', sanitize: false } })
       app.send(:initialize_logger)
 
       expect(log_source_registered?(Msf::MCP::LOG_SOURCE)).to be true
@@ -147,7 +149,7 @@ RSpec.describe Msf::MCP::Application do
 
     it 'registers the Rex source when logging.enabled is true in config' do
       app = described_class.new([], output: output)
-      app.instance_variable_set(:@config, { logging: { enabled: true, level: 'INFO', log_file: log_file } })
+      app.instance_variable_set(:@config, { logging: { enabled: true, level: 'INFO', log_file: log_file, sanitize: false } })
       app.send(:initialize_logger)
 
       expect(log_source_registered?(Msf::MCP::LOG_SOURCE)).to be true
@@ -157,7 +159,7 @@ RSpec.describe Msf::MCP::Application do
       cli_log = Tempfile.new('cli_log').tap(&:close).path
       app = described_class.new(['--log-file', cli_log], output: output)
       app.send(:parse_arguments)
-      app.instance_variable_set(:@config, { logging: { enabled: true, level: 'INFO', log_file: log_file } })
+      app.instance_variable_set(:@config, { logging: { enabled: true, level: 'INFO', log_file: log_file, sanitize: false } })
       app.send(:initialize_logger)
 
       # Emit a message and confirm it went to the CLI path, not the config path
@@ -167,6 +169,29 @@ RSpec.describe Msf::MCP::Application do
 
       deregister_log_source(Msf::MCP::LOG_SOURCE)
       File.delete(cli_log) if File.exist?(cli_log)
+    end
+
+    it 'wraps the sink with Sanitizing when sanitize is true' do
+      app = described_class.new([], output: output)
+      app.instance_variable_set(:@config, { logging: { enabled: true, level: 'INFO', log_file: log_file, sanitize: true } })
+      app.send(:initialize_logger)
+
+      # Log a message containing a sensitive pattern and verify it is redacted
+      elog({ message: 'password= s3cret' }, Msf::MCP::LOG_SOURCE, Rex::Logging::LEV_0)
+      content = File.read(log_file)
+      expect(content).to include('[REDACTED]')
+      expect(content).not_to include('s3cret')
+    end
+
+    it 'does not wrap with Sanitizing when sanitize is false' do
+      app = described_class.new([], output: output)
+      app.instance_variable_set(:@config, { logging: { enabled: true, level: 'INFO', log_file: log_file, sanitize: false } })
+      app.send(:initialize_logger)
+
+      # Log a message containing a sensitive pattern — should appear as-is
+      elog({ message: 'password= s3cret' }, Msf::MCP::LOG_SOURCE, Rex::Logging::LEV_0)
+      content = File.read(log_file)
+      expect(content).to include('s3cret')
     end
   end
 
@@ -426,9 +451,28 @@ RSpec.describe Msf::MCP::Application do
       expect(output.string).to include('Shutdown complete')
     end
 
+    it 'calls stop_rpc_server on rpc_manager when present' do
+      mock_rpc_manager = instance_double(Msf::MCP::RpcManager)
+
+      app = described_class.new([], output: output)
+      app.instance_variable_set(:@rpc_manager, mock_rpc_manager)
+
+      expect(mock_rpc_manager).to receive(:stop_rpc_server)
+
+      app.shutdown('INT')
+    end
+
     it 'handles nil mcp_server gracefully' do
       app = described_class.new([], output: output)
       app.instance_variable_set(:@mcp_server, nil)
+
+      expect { app.shutdown('INT') }.not_to raise_error
+      expect(output.string).to include('Shutdown complete')
+    end
+
+    it 'handles nil rpc_manager gracefully' do
+      app = described_class.new([], output: output)
+      app.instance_variable_set(:@rpc_manager, nil)
 
       expect { app.shutdown('INT') }.not_to raise_error
       expect(output.string).to include('Shutdown complete')
@@ -549,19 +593,23 @@ RSpec.describe Msf::MCP::Application do
         expect(output.string).to include('Configuration validation failed')
       end
 
-    end
+      it 'handles ConfigurationError the same way' do
+        app = described_class.new([], output: output)
+        error = Msf::MCP::Config::ConfigurationError.new('Configuration file not found: /missing.yml')
 
-    describe '#handle_file_not_found_error' do
-      it 'outputs error message with config path and exits' do
-        app = described_class.new(['--config', '/missing/config.yml'], output: output)
-        app.send(:parse_arguments)
-        error = Errno::ENOENT.new('No such file')
-
-        expect { app.send(:handle_file_not_found_error, error) }.to raise_error(SystemExit) do |e|
+        expect { app.send(:handle_configuration_error, error) }.to raise_error(SystemExit) do |e|
           expect(e.status).to eq(1)
         end
-        expect(output.string).to include('Configuration file not found: /missing/config.yml')
-        expect(output.string).to include('Create a configuration file or specify a valid path')
+        expect(output.string).to include('Configuration file not found')
+      end
+
+      it 'does not call elog (logger not available yet)' do
+        app = described_class.new([], output: output)
+        error = Msf::MCP::Config::ValidationError.new({})
+
+        # elog should not be called — logger is not initialized at this stage
+        expect(app).not_to receive(:elog)
+        expect { app.send(:handle_configuration_error, error) }.to raise_error(SystemExit)
       end
     end
 
@@ -577,6 +625,15 @@ RSpec.describe Msf::MCP::Application do
         expect(output.string).to include('Connection error to Metasploit RPC at localhost:55553')
         expect(output.string).to include('Connection refused')
       end
+
+      it 'logs the error via elog' do
+        app = described_class.new([], output: output)
+        app.instance_variable_set(:@config, valid_config)
+        error = Msf::MCP::Metasploit::ConnectionError.new('Connection refused')
+
+        expect(app).to receive(:elog).with(hash_including(message: 'Connection error'), anything, anything)
+        expect { app.send(:handle_connection_error, error) }.to raise_error(SystemExit)
+      end
     end
 
     describe '#handle_api_error' do
@@ -588,6 +645,14 @@ RSpec.describe Msf::MCP::Application do
           expect(e.status).to eq(1)
         end
         expect(output.string).to include('Metasploit API error: Invalid method')
+      end
+
+      it 'logs the error via elog' do
+        app = described_class.new([], output: output)
+        error = Msf::MCP::Metasploit::APIError.new('Invalid method')
+
+        expect(app).to receive(:elog).with(hash_including(message: 'Metasploit API error'), anything, anything)
+        expect { app.send(:handle_api_error, error) }.to raise_error(SystemExit)
       end
     end
 
@@ -601,6 +666,35 @@ RSpec.describe Msf::MCP::Application do
           expect(e.status).to eq(1)
         end
         expect(output.string).to include('Authentication error (username: testuser): Login Failed')
+      end
+
+      it 'logs the error via elog' do
+        app = described_class.new([], output: output)
+        app.instance_variable_set(:@config, valid_config)
+        error = Msf::MCP::Metasploit::AuthenticationError.new('Login Failed')
+
+        expect(app).to receive(:elog).with(hash_including(message: 'Authentication error'), anything, anything)
+        expect { app.send(:handle_authentication_error, error) }.to raise_error(SystemExit)
+      end
+    end
+
+    describe '#handle_rpc_startup_error' do
+      it 'outputs RPC startup error message and exits' do
+        app = described_class.new([], output: output)
+        error = Msf::MCP::Metasploit::RpcStartupError.new('msfrpcd not found')
+
+        expect { app.send(:handle_rpc_startup_error, error) }.to raise_error(SystemExit) do |e|
+          expect(e.status).to eq(1)
+        end
+        expect(output.string).to include('RPC startup error: msfrpcd not found')
+      end
+
+      it 'logs the error via elog' do
+        app = described_class.new([], output: output)
+        error = Msf::MCP::Metasploit::RpcStartupError.new('msfrpcd not found')
+
+        expect(app).to receive(:elog).with(hash_including(message: 'RPC startup error'), anything, anything)
+        expect { app.send(:handle_rpc_startup_error, error) }.to raise_error(SystemExit)
       end
     end
 
@@ -617,6 +711,14 @@ RSpec.describe Msf::MCP::Application do
         expect(output.string).to include('line1')
         expect(output.string).to include('line5')
         expect(output.string).not_to include('line6') # Only first 5 lines
+      end
+
+      it 'logs the error via elog' do
+        app = described_class.new([], output: output)
+        error = StandardError.new('Unexpected error')
+
+        expect(app).to receive(:elog).with(hash_including(message: 'Fatal error during startup'), anything, anything)
+        expect { app.send(:handle_fatal_error, error) }.to raise_error(SystemExit)
       end
     end
   end

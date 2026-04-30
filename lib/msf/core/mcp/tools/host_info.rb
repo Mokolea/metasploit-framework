@@ -164,9 +164,9 @@ module Msf::MCP
           )
         rescue Msf::MCP::Security::RateLimitExceededError => e
           tool_error_response("Rate limit exceeded: #{e.message}")
-        rescue Metasploit::AuthenticationError => e
+        rescue Msf::MCP::Metasploit::AuthenticationError => e
           tool_error_response("Authentication failed: #{e.message}")
-        rescue Metasploit::APIError => e
+        rescue Msf::MCP::Metasploit::APIError => e
           tool_error_response("Metasploit API error: #{e.message}")
         rescue Msf::MCP::Security::ValidationError => e
           tool_error_response(e.message)

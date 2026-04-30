@@ -64,7 +64,7 @@ RSpec.describe Msf::MCP::Metasploit::ResponseTransformer do
         'disclosuredate' => '2017-03-14',
         'description' => 'Test description',
         'license' => 'MSF_LICENSE',
-        'filepath' => '/path/to/module',
+        'filepath' => '/opt/metasploit-framework/modules/exploits/windows/smb/ms17_010.rb',
         'arch' => ['x64', 'x86'],
         'platform' => ['windows'],
         'authors' => ['Author 1', 'Author 2'],
@@ -92,7 +92,7 @@ RSpec.describe Msf::MCP::Metasploit::ResponseTransformer do
         disclosure_date: '2017-03-14',
         description: 'Test description',
         license: 'MSF_LICENSE',
-        filepath: '/path/to/module',
+        filepath: 'modules/exploits/windows/smb/ms17_010.rb',
         architectures: ['x64', 'x86'],
         platforms: ['windows'],
         authors: ['Author 1', 'Author 2'],
@@ -129,11 +129,33 @@ RSpec.describe Msf::MCP::Metasploit::ResponseTransformer do
     end
 
     it 'compacts nil values' do
-      minimal_info = { 'name' => 'test' }
+      minimal_info = { 'name' => 'test', 'filepath' => 'modules/exploits/test.rb' }
       result = described_class.transform_module_info(minimal_info)
 
-      expect(result).to eq({ name: 'test' })
+      expect(result[:name]).to eq('test')
+      expect(result[:filepath]).to eq('modules/exploits/test.rb')
       expect(result).not_to have_key(:description)
+    end
+
+    it 'strips the install path prefix from filepath' do
+      info = { 'name' => 'test', 'filepath' => '/home/user/.msf4/modules/post/linux/gather/enum_configs.rb' }
+      result = described_class.transform_module_info(info)
+
+      expect(result[:filepath]).to eq('modules/post/linux/gather/enum_configs.rb')
+    end
+
+    it 'handles nil filepath via safe navigation' do
+      info = { 'name' => 'test', 'filepath' => nil }
+      result = described_class.transform_module_info(info)
+
+      expect(result).not_to have_key(:filepath)
+    end
+
+    it 'passes through filepath that already starts with modules/' do
+      info = { 'name' => 'test', 'filepath' => 'modules/exploits/test.rb' }
+      result = described_class.transform_module_info(info)
+
+      expect(result[:filepath]).to eq('modules/exploits/test.rb')
     end
   end
 

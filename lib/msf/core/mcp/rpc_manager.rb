@@ -39,12 +39,15 @@ module Msf::MCP
       host = @config[:msf_api][:host]
       port = @config[:msf_api][:port]
 
-      socket = TCPSocket.new(host, port)
+      socket = Rex::Socket::Tcp.create(
+        'PeerHost' => host,
+        'PeerPort' => port
+      )
       socket.close
-      dlog("RPC server is available at #{Rex::Socket.to_authority(host, port)}", LOG_SOURCE, Rex::Logging::LEV_0)
+      dlog({ message: "RPC server is available at #{Rex::Socket.to_authority(host, port)}" },
+           LOG_SOURCE, LOG_DEBUG)
       true
-    rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH, Errno::ENETUNREACH,
-           Errno::ETIMEDOUT, SocketError
+    rescue Rex::ConnectionError
       false
     end
 
@@ -78,7 +81,8 @@ module Msf::MCP
       end
 
       @output.puts 'Starting Metasploit RPC server...'
-      ilog('Starting Metasploit RPC server', LOG_SOURCE, Rex::Logging::LEV_0)
+      ilog({ message: 'Starting Metasploit RPC server' },
+           LOG_SOURCE, LOG_INFO)
 
       unless File.executable?(MSFRPCD_PATH)
         raise Msf::MCP::Metasploit::RpcStartupError,
@@ -133,7 +137,8 @@ module Msf::MCP
       return unless @rpc_managed
 
       @output.puts 'Stopping managed RPC server...'
-      ilog("Stopping managed RPC server (PID: #{@rpc_pid})", LOG_SOURCE, Rex::Logging::LEV_0)
+      ilog({ message: "Stopping managed RPC server (PID: #{@rpc_pid})" },
+           LOG_SOURCE, LOG_INFO)
 
       begin
         Process.kill('TERM', @rpc_pid)
@@ -150,33 +155,39 @@ module Msf::MCP
 
     # Ensure an RPC server is available, auto-starting if needed.
     #
-    # When no credentials are provided and auto-start is enabled, random
-    # credentials are generated and written back into the config hash so the
-    # application can use them to authenticate.
+    # When the RPC server is already listening, verifies that credentials
+    # (or a token for JSON-RPC) are available for the caller to authenticate.
+    #
+    # When the server is not available, auto-start is attempted only for
+    # MessagePack on localhost with auto_start_rpc enabled.  Random
+    # credentials are generated when none are provided.
     #
     # @return [void]
-    # @raise [Msf::MCP::Metasploit::RpcStartupError] If the RPC server is already
-    #   running but no credentials were provided
+    # @raise [Msf::MCP::Metasploit::RpcStartupError] If the server cannot be
+    #   reached and auto-start is not possible, or if the server is running
+    #   but no credentials/token were provided
     def ensure_rpc_available
       if rpc_available?
-        unless credentials_provided?
-          raise Msf::MCP::Metasploit::RpcStartupError,
-                'RPC server is already running but no credentials were provided. ' \
-                'Use --user and --password options to authenticate with the existing server.'
-        end
-
         @output.puts 'Metasploit RPC server is already running'
+        validate_credentials_for_existing_server!
         return
       end
 
+      if @config[:msf_api][:type] == 'json-rpc'
+        raise Msf::MCP::Metasploit::RpcStartupError,
+              'RPC server is not running and auto-start is not supported for JSON-RPC API type.'
+      end
+
+      unless localhost?
+        message = "RPC server is not available at #{@config[:msf_api][:host]}:#{@config[:msf_api][:port]}."
+        message << ' Cannot auto-start RPC on remote hosts. Please start the RPC server manually.' if auto_start_enabled?
+        raise Msf::MCP::Metasploit::RpcStartupError, message
+      end
+
       unless auto_start_enabled?
-        if localhost?
-          @output.puts 'RPC server is not running and auto-start is disabled'
-        else
-          @output.puts "Cannot auto-start RPC on remote host #{@config[:msf_api][:host]}. " \
-                       'Please start the RPC server manually.'
-        end
-        return
+        raise Msf::MCP::Metasploit::RpcStartupError,
+              "RPC server is not running on #{@config[:msf_api][:host]}:#{@config[:msf_api][:port]} " \
+              'and auto-start is disabled.'
       end
 
       generate_random_credentials unless credentials_provided?
@@ -219,6 +230,36 @@ module Msf::MCP
       !user.to_s.strip.empty? && !password.to_s.strip.empty?
     end
 
+    # Whether the BEARER token is present in the configuration.
+    #
+    # @return [Boolean]
+    def token_provided?
+      token = @config[:msf_api][:token]
+      !token.to_s.strip.empty?
+    end
+
+    # Verify that the caller has credentials to authenticate with an
+    # already-running RPC server.  For MessagePack this means user+password;
+    # for JSON-RPC this means a bearer token.
+    #
+    # @raise [Msf::MCP::Metasploit::RpcStartupError] If required credentials
+    #   are missing
+    def validate_credentials_for_existing_server!
+      if @config[:msf_api][:type] == 'json-rpc'
+        return if token_provided?
+
+        raise Msf::MCP::Metasploit::RpcStartupError,
+              'RPC server is already running but no token was provided. ' \
+              'Use --token option or MSF_API_TOKEN environment variable.'
+      else
+        return if credentials_provided?
+
+        raise Msf::MCP::Metasploit::RpcStartupError,
+              'RPC server is already running but no credentials were provided. ' \
+              'Use --user and --password options or MSF_API_USER and MSF_API_PASSWORD environment variables.'
+      end
+    end
+
     # Generate random credentials and write them into the config hash.
     #
     # @return [void]
@@ -226,7 +267,8 @@ module Msf::MCP
       @config[:msf_api][:user] = SecureRandom.hex(8)
       @config[:msf_api][:password] = SecureRandom.hex(16)
       @output.puts 'Generated random credentials for auto-started RPC server'
-      ilog('Generated random credentials for auto-started RPC server', LOG_SOURCE, Rex::Logging::LEV_0)
+      ilog({ message: 'Generated random credentials for auto-started RPC server' },
+           LOG_SOURCE, LOG_INFO)
     end
 
     # Check if the managed child process is still alive.

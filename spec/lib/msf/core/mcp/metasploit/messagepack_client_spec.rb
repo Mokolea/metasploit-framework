@@ -97,17 +97,23 @@ RSpec.describe Msf::MCP::Metasploit::MessagePackClient do
       expect(token).to eq('abc123')
     end
 
-    it 'raises AuthenticationError on failure' do
-      # send_request raises AuthenticationError for HTTP 401
-      allow(client).to receive(:send_request).and_raise(Msf::MCP::Metasploit::AuthenticationError, 'Login Failed')
+    it 'raises AuthenticationError when response contains error key' do
+      allow(client).to receive(:send_request).and_return({ 'error' => 'Invalid credentials' })
 
       expect {
-        client.authenticate('testuser', 'testpass')
-      }.to raise_error(Msf::MCP::Metasploit::AuthenticationError, 'Login Failed')
+        client.authenticate('testuser', 'badpass')
+      }.to raise_error(Msf::MCP::Metasploit::AuthenticationError, 'Invalid credentials')
     end
 
     it 'raises AuthenticationError with default message when result is not success' do
-      # send_request raises AuthenticationError for HTTP 401
+      allow(client).to receive(:send_request).and_return({ 'result' => 'failure' })
+
+      expect {
+        client.authenticate('testuser', 'testpass')
+      }.to raise_error(Msf::MCP::Metasploit::AuthenticationError, 'Authentication failed')
+    end
+
+    it 'raises AuthenticationError when send_request raises' do
       allow(client).to receive(:send_request).and_raise(Msf::MCP::Metasploit::AuthenticationError, 'Login Failed')
 
       expect {
@@ -145,16 +151,15 @@ RSpec.describe Msf::MCP::Metasploit::MessagePackClient do
       }.to raise_error(ArgumentError, /args must be an Array/)
     end
 
-    it 'raises AuthenticationError if no token present' do
+    it 'raises AuthenticationError if no token present and no credentials stored' do
       client.instance_variable_set(:@token, nil)
 
       expect {
         client.call_api('module.search', ['smb'])
-      }.to raise_error(Msf::MCP::Metasploit::AuthenticationError, "Unable to authenticate after 0 attempts: Not authenticated")
+      }.to raise_error(Msf::MCP::Metasploit::AuthenticationError, 'Not authenticated')
     end
 
     it 'raises APIError when response contains error' do
-      # send_request raises APIError for HTTP 500
       allow(client).to receive(:send_request).and_raise(Msf::MCP::Metasploit::APIError, 'Method not found')
 
       expect {
@@ -162,13 +167,13 @@ RSpec.describe Msf::MCP::Metasploit::MessagePackClient do
       }.to raise_error(Msf::MCP::Metasploit::APIError, 'Method not found')
     end
 
-    it 'raises APIError with error value when error is not a string' do
-      # send_request raises APIError for HTTP 500
-      allow(client).to receive(:send_request).and_raise(Msf::MCP::Metasploit::APIError, 'true')
+    it 'logs via elog before re-raising Msf::MCP::Error subclasses' do
+      allow(client).to receive(:send_request).and_raise(Msf::MCP::Metasploit::APIError, 'Method not found')
 
+      expect(client).to receive(:elog).with(hash_including(message: 'MessagePack API call error'), anything, anything)
       expect {
         client.call_api('module.search', ['smb'])
-      }.to raise_error(Msf::MCP::Metasploit::APIError, 'true')
+      }.to raise_error(Msf::MCP::Metasploit::APIError)
     end
   end
 
@@ -237,6 +242,18 @@ RSpec.describe Msf::MCP::Metasploit::MessagePackClient do
       )
       expect { client_no_ssl.authenticate('user', 'pass') }.not_to raise_error
     end
+
+    it 'calls dlog for request and response' do
+      client_no_ssl = described_class.new(host: host, port: port, ssl: false)
+      allow(http_mock).to receive(:request).and_return(
+        instance_double(Net::HTTPResponse, code: '200', body: { 'result' => 'success', 'token' => 'abc' }.to_msgpack)
+      )
+
+      expect(client_no_ssl).to receive(:dlog).with(hash_including(message: 'MessagePack request'), anything, anything).ordered
+      expect(client_no_ssl).to receive(:dlog).with(hash_including(message: 'MessagePack response'), anything, anything).ordered
+
+      client_no_ssl.authenticate('user', 'pass')
+    end
   end
 
   describe 'automatic re-authentication' do
@@ -275,7 +292,7 @@ RSpec.describe Msf::MCP::Metasploit::MessagePackClient do
       expect(client.instance_variable_get(:@token)).to eq('refreshed_token')
     end
 
-    it 'does not retry more than once' do
+    it 'stops retrying after max_retries when API calls keep failing' do
       retry_attempt = 0
 
       allow(client).to receive(:send_request) do |request_array|
@@ -289,13 +306,13 @@ RSpec.describe Msf::MCP::Metasploit::MessagePackClient do
         end
       end
 
-      # Should fail after one retry attempt
+      # After exhausting retries (max_retries=2), re-raises the last error
       expect {
         client.search_modules('smb')
-      }.to raise_error(Msf::MCP::Metasploit::AuthenticationError, /Unable to authenticate/)
+      }.to raise_error(Msf::MCP::Metasploit::AuthenticationError, 'Invalid token')
 
-      # Should have tried: initial call + re-auth + retry = 2 API calls (not counting auth)
-      expect(retry_attempt).to eq(2)
+      # initial call + 2 retries = 3 API attempts
+      expect(retry_attempt).to eq(3)
     end
 
     it 'does not auto-reauth if credentials not stored' do
@@ -307,7 +324,39 @@ RSpec.describe Msf::MCP::Metasploit::MessagePackClient do
 
       expect {
         new_client.search_modules('smb')
-      }.to raise_error(Msf::MCP::Metasploit::AuthenticationError, /Unable to authenticate/)
+      }.to raise_error(Msf::MCP::Metasploit::AuthenticationError, 'Invalid token')
+    end
+
+    it 'logs wlog when attempting re-authentication' do
+      call_count = 0
+      allow(client).to receive(:send_request) do |request_array|
+        call_count += 1
+        case call_count
+        when 1
+          raise Msf::MCP::Metasploit::AuthenticationError, 'Invalid token'
+        when 2
+          { 'result' => 'success', 'token' => 'new_token' }
+        when 3
+          { 'modules' => [] }
+        end
+      end
+
+      expect(client).to receive(:wlog).with(hash_including(message: /Attempting to re-authenticate/), anything, anything)
+      client.search_modules('smb')
+    end
+
+    it 'raises with descriptive message when re-authentication itself fails' do
+      allow(client).to receive(:send_request) do |request_array|
+        if request_array[0] == 'auth.login'
+          raise Msf::MCP::Metasploit::AuthenticationError, 'Bad credentials'
+        else
+          raise Msf::MCP::Metasploit::AuthenticationError, 'Invalid token'
+        end
+      end
+
+      expect {
+        client.search_modules('smb')
+      }.to raise_error(Msf::MCP::Metasploit::AuthenticationError, /Unable to authenticate after 2 attempts: Bad credentials/)
     end
 
     it 'resets retry count after successful re-authentication' do
